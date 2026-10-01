@@ -357,7 +357,7 @@ def create_new_user(user: schemas.UserCreate, db: Session = Depends(get_db), cur
     return crud.create_user(db=db, user=user, hashed_password=hashed_password)
 
 @app.get("/users/", response_model=List[schemas.UserResponse])
-def read_all_users(db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_admin)):
+def read_all_users(db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
     return crud.get_all_users(db)
 
 @app.put("/users/{user_id}/role", response_model=schemas.UserResponse)
@@ -371,8 +371,16 @@ def reset_password(user_id: int, new_password: str = Query(...), db: Session = D
 
 @app.delete("/users/{user_id}")
 def remove_user(user_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_admin)):
-    crud.delete_user(db, user_id)
-    return {"message": "User deleted successfully"}
+    if current_user.id == user_id:
+        raise HTTPException(status_code=400, detail="Cannot delete your own logged-in account.")
+    try:
+        deleted = crud.delete_user(db, user_id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail="User not found")
+        return {"message": "User deleted successfully"}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=f"Failed to delete user: {str(e)}")
 
 # ----------------- PATIENTS ENDPOINTS -----------------
 @app.post("/patients/", response_model=schemas.Patient)
@@ -415,8 +423,6 @@ def create_appointment(appointment: schemas.AppointmentCreate, db: Session = Dep
 
 @app.get("/appointments/", response_model=List[schemas.AppointmentResponse])
 def read_appointments(target_date: Optional[date] = None, db: Session = Depends(get_db)):
-    if not target_date:
-        target_date = date.today()
     return crud.get_appointments(db=db, target_date=target_date)
 
 @app.put("/appointments/{appointment_id}", response_model=schemas.AppointmentResponse)

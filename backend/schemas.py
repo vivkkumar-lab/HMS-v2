@@ -75,7 +75,7 @@ class Patient(PatientBase):
 
 # ----------------- OP TOKEN SCHEMAS -----------------
 class OPTokenBase(BaseModel):
-    patient_id: int
+    patient_id: Optional[int] = None
     session: str # "Morning" or "Evening"
     date: date
     fee: float = 0.0

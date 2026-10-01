@@ -1,12 +1,12 @@
 # Setup Portable Environment for Hospital Management System (HMS)
 # Downloads and sets up portable Node.js, Python with pip, and PostgreSQL
 
-$binDir = "d:\H\bin"
+$binDir = "f:\Hospital Soft\bin"
 if (!(Test-Path $binDir)) {
     New-Item -ItemType Directory -Path $binDir | Out-Null
 }
 
-$tempDir = "d:\H\setup_temp"
+$tempDir = "f:\Hospital Soft\setup_temp"
 if (!(Test-Path $tempDir)) {
     New-Item -ItemType Directory -Path $tempDir | Out-Null
 }
@@ -83,16 +83,16 @@ if (!(Test-Path $pgDataDir)) {
     Write-Host "PostgreSQL Database already initialized."
 }
 
-# Create startup helper scripts in d:\H
+# Create startup helper scripts in f:\Hospital Soft
 Write-Host "Creating helper startup scripts..."
 
 $startDbScript = @"
-`$pgCtl = "d:\H\bin\pgsql\bin\pg_ctl.exe"
-`$pgData = "d:\H\bin\pgsql\data"
-& `$pgCtl -D `$pgData -l d:\H\pgsql.log start
+`$pgCtl = "f:\Hospital Soft\bin\pgsql\bin\pg_ctl.exe"
+`$pgData = "f:\Hospital Soft\bin\pgsql\data"
+& `$pgCtl -D `$pgData -l f:\Hospital Soft\pgsql.log start
 Read-Host "PostgreSQL is running. Press Enter to stop it."
 & `$pgCtl -D `$pgData stop
 "@
-Set-Content -Path "d:\H\start_db.ps1" -Value $startDbScript
+Set-Content -Path "f:\Hospital Soft\start_db.ps1" -Value $startDbScript
 
 Write-Host "Setup finished successfully!"

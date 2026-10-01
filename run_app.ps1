@@ -41,11 +41,11 @@ Write-Host "Ensuring DB role for '$currentUser' exists..." -ForegroundColor Yell
 
 # 2. Start Backend
 Write-Host "Starting FastAPI Backend Server..." -ForegroundColor Cyan
-Start-Process -FilePath "$binDir\python\python.exe" -ArgumentList "-m uvicorn backend.main:app --port 8000" -NoNewWindow -WorkingDirectory "$baseDir"
+Start-Process -FilePath "cmd.exe" -ArgumentList "/c `"set PATH=$binDir\python;$env:PATH && `"$binDir\python\python.exe`" -m uvicorn backend.main:app --port 8000`"" -NoNewWindow -WorkingDirectory "$baseDir"
 
 # 3. Start Frontend
 Write-Host "Starting React Frontend Server..." -ForegroundColor Cyan
-Start-Process -FilePath "$binDir\nodejs\npm.cmd" -ArgumentList "run dev -- --port 3000 --host" -NoNewWindow -WorkingDirectory "$baseDir\frontend"
+Start-Process -FilePath "cmd.exe" -ArgumentList "/c `"set PATH=$binDir\nodejs;$env:PATH && `"$binDir\nodejs\npm.cmd`" run dev -- --port 3000 --host`"" -NoNewWindow -WorkingDirectory "$baseDir\frontend"
 
 Write-Host "`nApp successfully launched!" -ForegroundColor Green
 Write-Host "➜ Backend API:  http://localhost:8000/docs" -ForegroundColor Gray

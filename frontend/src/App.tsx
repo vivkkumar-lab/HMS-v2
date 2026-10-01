@@ -693,106 +693,89 @@ export default function App() {
   };
 
 
-  const handleDeletePatient = async (id: number) => {
-    if (!window.confirm("Are you sure you want to delete this patient?")) return;
-    try {
-      await axios.delete(`${API_BASE}/patients/${id}`);
-      showToast("Patient deleted successfully", "success");
-      loadAllData();
-    } catch (err: any) {
-      console.error(err);
-      alert(err.response?.data?.detail || "Failed to delete patient");
-    }
+  const [deleteConfirm, setDeleteConfirm] = useState<{ id: number; name: string; type: 'user' | 'patient' | 'medicine' | 'lab_report' | 'appointment' } | null>(null);
+
+  const handleDeletePatient = (id: number, name: string = 'Patient') => {
+    setDeleteConfirm({ id, name, type: 'patient' });
   };
 
-  const handleDeleteMedicineStock = async (id: number) => {
-    if (!window.confirm("Are you sure you want to delete this medicine?")) return;
-    try {
-      await axios.delete(`${API_BASE}/inventory/${id}`);
-      showToast("Medicine deleted successfully", "success");
-      loadAllData();
-    } catch (err: any) {
-      console.error(err);
-      alert(err.response?.data?.detail || "Failed to delete medicine");
-    }
+  const handleDeleteMedicineStock = (id: number, name: string = 'Medicine') => {
+    setDeleteConfirm({ id, name, type: 'medicine' });
   };
 
-  const handleDeleteLabReport = async (id: number) => {
-    if (!window.confirm("Are you sure you want to delete this report?")) return;
-    try {
-      await axios.delete(`${API_BASE}/lab-reports/${id}`);
-      showToast("Report deleted successfully", "success");
-      loadAllData();
-    } catch (err: any) {
-      console.error(err);
-      alert(err.response?.data?.detail || "Failed to delete report");
-    }
+  const handleDeleteLabReport = (id: number, name: string = 'Lab Report') => {
+    setDeleteConfirm({ id, name, type: 'lab_report' });
   };
 
-  const handleDeleteAppointment = async (id: number) => {
-    if (!window.confirm("Are you sure you want to delete this appointment?")) return;
-    try {
-      await axios.delete(`${API_BASE}/appointments/${id}`);
-      showToast("Appointment deleted successfully", "success");
-      loadAllData();
-    } catch (err: any) {
-      console.error(err);
-      alert(err.response?.data?.detail || "Failed to delete appointment");
-    }
+  const handleDeleteAppointment = (id: number, name: string = 'Appointment') => {
+    setDeleteConfirm({ id, name, type: 'appointment' });
   };
 
-  const handleDeleteUser = async (userId: number) => {
-    if (!window.confirm("Are you sure you want to delete this user?")) return;
+  const handleDeleteUser = (userId: number, username: string = 'User') => {
+    if (currentUser && currentUser.id === userId) {
+      return showToast("You cannot delete your own logged-in account", "error");
+    }
+    setDeleteConfirm({ id: userId, name: username, type: 'user' });
+  };
+
+  const executeDelete = async () => {
+    if (!deleteConfirm) return;
+    const { id, type } = deleteConfirm;
+    setDeleteConfirm(null);
     try {
-      await axios.delete(`${API_BASE}/users/${userId}`);
-      showToast("User deleted successfully", "success");
-      loadUsers();
-    } catch (err) {
-      console.error("Failed to delete user", err);
+      if (type === 'user') {
+        await axios.delete(`${API_BASE}/users/${id}`);
+        showToast("User deleted successfully", "success");
+        await loadUsers();
+      } else if (type === 'patient') {
+        await axios.delete(`${API_BASE}/patients/${id}`);
+        showToast("Patient deleted successfully", "success");
+        await loadAllData();
+      } else if (type === 'medicine') {
+        await axios.delete(`${API_BASE}/inventory/${id}`);
+        showToast("Medicine deleted successfully", "success");
+        await loadAllData();
+      } else if (type === 'lab_report') {
+        await axios.delete(`${API_BASE}/lab-reports/${id}`);
+        showToast("Report deleted successfully", "success");
+        await loadAllData();
+      } else if (type === 'appointment') {
+        await axios.delete(`${API_BASE}/appointments/${id}`);
+        showToast("Appointment deleted successfully", "success");
+        await loadAllData();
+      }
+    } catch (err: any) {
+      console.error(`Failed to delete ${type}`, err);
+      showToast(err.response?.data?.detail || `Failed to delete ${type}`, "error");
     }
   };
 
   // Load Data
   const loadAllData = async () => {
-    try {
-      const pats = await axios.get(`${API_BASE}/patients/`);
-      setPatients(pats.data);
-      
-      const toks = await axios.get(`${API_BASE}/tokens/`);
-      setTokens(toks.data);
-      
-      const inv = await axios.get(`${API_BASE}/inventory/`);
-      setInventory(inv.data);
-      
-      const bills = await axios.get(`${API_BASE}/billing/pharmacy/`);
-      setPharmacyBills(bills.data);
-      
-      const ip = await axios.get(`${API_BASE}/ip-admissions/`);
-      setIpAdmissions(ip.data);
-      
-      const labs = await axios.get(`${API_BASE}/lab-reports/`);
-      setLabReports(labs.data);
+    const fetchSafe = async (url: string, setter: (data: any) => void) => {
+      try {
+        const res = await axios.get(url);
+        setter(res.data);
+      } catch (err) {
+        console.error(`Error fetching ${url}:`, err);
+      }
+    };
 
-      const masters = await axios.get(`${API_BASE}/lab-test-masters/`);
-      setLabTestMasters(masters.data);
-
-      const orders = await axios.get(`${API_BASE}/lab-orders/`);
-      setLabOrders(orders.data);
-
-      const samples = await axios.get(`${API_BASE}/lab-samples/`);
-      setLabSamples(samples.data);
-
-      const opb = await axios.get(`${API_BASE}/billing/op/`);
-      setOpBills(opb.data);
-
-      const ipb = await axios.get(`${API_BASE}/billing/ip/`);
-      setIpBills(ipb.data);
-
-      const appts = await axios.get(`${API_BASE}/appointments/`);
-      setAppointments(appts.data);
-    } catch (e) {
-      console.error("Error loading data from API:", e);
-    }
+    await Promise.allSettled([
+      fetchSafe(`${API_BASE}/patients/`, setPatients),
+      fetchSafe(`${API_BASE}/tokens/`, setTokens),
+      fetchSafe(`${API_BASE}/inventory/`, setInventory),
+      fetchSafe(`${API_BASE}/billing/pharmacy/`, setPharmacyBills),
+      fetchSafe(`${API_BASE}/ip-admissions/`, setIpAdmissions),
+      fetchSafe(`${API_BASE}/lab-reports/`, setLabReports),
+      fetchSafe(`${API_BASE}/lab-test-masters/`, setLabTestMasters),
+      fetchSafe(`${API_BASE}/lab-orders/`, setLabOrders),
+      fetchSafe(`${API_BASE}/lab-samples/`, setLabSamples),
+      fetchSafe(`${API_BASE}/billing/op/`, setOpBills),
+      fetchSafe(`${API_BASE}/billing/ip/`, setIpBills),
+      fetchSafe(`${API_BASE}/appointments/`, setAppointments),
+      loadUsers()
+    ]);
   };
 
   const loadDashboardData = async () => {
@@ -842,7 +825,17 @@ export default function App() {
     loadAllData();
     loadDashboardData();
     loadHospitalSettings();
+    loadUsers();
   }, []);
+
+  useEffect(() => {
+    if (activeTab === 'settings') {
+      loadUsers();
+      loadAuditLogs();
+    } else {
+      loadAllData();
+    }
+  }, [activeTab]);
 
   // Bar Chart Component (CSS-based, no external library)
   const BarChart = ({ data, title, color = '#3b82f6', valuePrefix = '₹' }: { data: {label:string;value:number}[]; title:string; color?:string; valuePrefix?:string }) => {
@@ -2821,7 +2814,9 @@ Follow-up: ${casesheetForm.followUpDate}`.trim();
                     <label>Or Select Medicine Manually</label>
                     <Select 
                       styles={selectStyles}
-                      options={inventory.filter(i => i.category === 'Pharmacy').map(item => ({ value: String(item.id), label: `${item.name} (Stock Available: ${item.quantity} | Price: ₹${item.unit_price})` }))}
+                      options={(inventory.filter(i => !i.category || i.category.toLowerCase() === 'pharmacy').length > 0 
+                        ? inventory.filter(i => !i.category || i.category.toLowerCase() === 'pharmacy') 
+                        : inventory).map(item => ({ value: String(item.id), label: `${item.name} (Stock Available: ${item.quantity} | Price: ₹${item.unit_price})` }))}
                       value={billingNewItem.medicine_id ? { value: String(billingNewItem.medicine_id), label: (() => { const i = inventory.find(x => x.id === billingNewItem.medicine_id); return i ? `${i.name} (Stock Available: ${i.quantity} | Price: ₹${i.unit_price})` : ''; })() } : null}
                       onChange={(sel: any) => setBillingNewItem({ ...billingNewItem, medicine_id: sel ? Number(sel.value) : 0 })}
                       placeholder="-- Select Medicine --"
@@ -4071,8 +4066,8 @@ Follow-up: ${casesheetForm.followUpDate}`.trim();
                           <td><span className="badge" style={{background: u.role === 'Admin' ? '#dbeafe' : '#f3f4f6', color: u.role === 'Admin' ? '#1d4ed8' : '#374151'}}>{u.role}</span></td>
                           <td>{u.is_active ? 'Active' : 'Inactive'}</td>
                           <td>
-                            {currentUser.id !== u.id && (
-                              <button className="btn btn-danger" onClick={() => handleDeleteUser(u.id)} style={{padding: '4px 8px', fontSize: '12px'}}>
+                            {currentUser?.id !== u.id && (
+                              <button className="btn btn-danger" onClick={() => handleDeleteUser(u.id, u.username)} style={{padding: '4px 8px', fontSize: '12px'}}>
                                 <Trash2 size={14} /> Delete
                               </button>
                             )}
@@ -5165,6 +5160,38 @@ Follow-up: ${casesheetForm.followUpDate}`.trim();
         )}
 
       </div>
+
+      {/* Custom Delete Confirmation Modal */}
+      {deleteConfirm && (
+        <div style={{position:'fixed', top:0, left:0, right:0, bottom:0, background:'rgba(0,0,0,0.65)', zIndex:10000, display:'flex', justifyContent:'center', alignItems:'center', backdropFilter:'blur(4px)'}}>
+          <div style={{background:'var(--bg-card, #1e293b)', border:'1px solid var(--border-color, #334155)', padding:'28px', borderRadius:'16px', maxWidth:'420px', width:'90%', boxShadow:'0 20px 25px -5px rgba(0,0,0,0.5)', color:'var(--text-main, #f8fafc)'}}>
+            <h3 style={{margin:'0 0 12px', fontSize:'18px', color:'#ef4444', display:'flex', alignItems:'center', gap:'8px'}}>
+              <Trash2 size={20} /> Delete Confirmation
+            </h3>
+            <p style={{margin:'0 0 24px', fontSize:'14px', lineHeight:'1.5', color:'var(--text-muted, #94a3b8)'}}>
+              Are you sure you want to delete <strong>{deleteConfirm.name}</strong> ({deleteConfirm.type})? This action cannot be undone.
+            </p>
+            <div style={{display:'flex', justifyContent:'flex-end', gap:'12px'}}>
+              <button 
+                type="button"
+                className="btn btn-secondary" 
+                onClick={() => setDeleteConfirm(null)}
+                style={{padding:'8px 16px', borderRadius:'8px', cursor:'pointer', background:'rgba(255,255,255,0.1)', color:'#fff', border:'none'}}
+              >
+                Cancel
+              </button>
+              <button 
+                type="button"
+                className="btn btn-danger" 
+                onClick={executeDelete}
+                style={{padding:'8px 16px', borderRadius:'8px', background:'#dc2626', color:'#fff', border:'none', cursor:'pointer', fontWeight:600}}
+              >
+                Confirm Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Global Overlays */}
       {globalLoading && (

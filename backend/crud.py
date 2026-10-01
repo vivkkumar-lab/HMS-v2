@@ -1,6 +1,7 @@
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_, cast, String
 from datetime import date, datetime
+from typing import List, Optional, Dict, Any
 from . import models, schemas
 from fastapi import HTTPException
 
@@ -33,6 +34,7 @@ def update_user_role(db: Session, user_id: int, role: str):
 def delete_user(db: Session, user_id: int):
     user = db.query(models.User).filter(models.User.id == user_id).first()
     if user:
+        db.query(models.Appointment).filter(models.Appointment.doctor_id == user_id).update({models.Appointment.doctor_id: None}, synchronize_session=False)
         db.delete(user)
         db.commit()
     return user
@@ -118,8 +120,10 @@ def create_appointment(db: Session, appointment: schemas.AppointmentCreate):
     db.refresh(db_appointment)
     return db_appointment
 
-def get_appointments(db: Session, target_date: date):
-    return db.query(models.Appointment).filter(models.Appointment.appointment_date >= target_date).all()
+def get_appointments(db: Session, target_date: Optional[date] = None):
+    if target_date:
+        return db.query(models.Appointment).filter(models.Appointment.appointment_date == target_date).all()
+    return db.query(models.Appointment).order_by(models.Appointment.appointment_date.desc()).all()
 
 def update_appointment_status(db: Session, appointment_id: int, status: str):
     db_appointment = db.query(models.Appointment).filter(models.Appointment.id == appointment_id).first()
@@ -410,6 +414,83 @@ def update_lab_order_status(db: Session, order_id: int, status: str):
         db.commit()
         db.refresh(db_order)
     return db_order
+
+def delete_patient(db: Session, patient_id: int):
+    db_patient = db.query(models.Patient).filter(models.Patient.id == patient_id).first()
+    if db_patient:
+        db.query(models.OPToken).filter(models.OPToken.patient_id == patient_id).delete(synchronize_session=False)
+        db.query(models.Casesheet).filter(models.Casesheet.patient_id == patient_id).delete(synchronize_session=False)
+        db.query(models.Appointment).filter(models.Appointment.patient_id == patient_id).delete(synchronize_session=False)
+        db.query(models.LabOrder).filter(models.LabOrder.patient_id == patient_id).delete(synchronize_session=False)
+        db.query(models.LabReport).filter(models.LabReport.patient_id == patient_id).delete(synchronize_session=False)
+        db.query(models.PharmacyBill).filter(models.PharmacyBill.patient_id == patient_id).update({models.PharmacyBill.patient_id: None}, synchronize_session=False)
+        db.query(models.LabBill).filter(models.LabBill.patient_id == patient_id).update({models.LabBill.patient_id: None}, synchronize_session=False)
+        db.query(models.OPBill).filter(models.OPBill.patient_id == patient_id).update({models.OPBill.patient_id: None}, synchronize_session=False)
+        db.query(models.IPBill).filter(models.IPBill.patient_id == patient_id).update({models.IPBill.patient_id: None}, synchronize_session=False)
+        db.query(models.IPAdmission).filter(models.IPAdmission.patient_id == patient_id).delete(synchronize_session=False)
+        db.delete(db_patient)
+        db.commit()
+    return db_patient
+
+def delete_op_token(db: Session, token_id: int):
+    db_token = db.query(models.OPToken).filter(models.OPToken.id == token_id).first()
+    if db_token:
+        db.query(models.Casesheet).filter(models.Casesheet.token_id == token_id).update({models.Casesheet.token_id: None}, synchronize_session=False)
+        db.query(models.OPBill).filter(models.OPBill.token_id == token_id).update({models.OPBill.token_id: None}, synchronize_session=False)
+        db.delete(db_token)
+        db.commit()
+    return db_token
+
+def delete_appointment(db: Session, appointment_id: int):
+    db_app = db.query(models.Appointment).filter(models.Appointment.id == appointment_id).first()
+    if db_app:
+        db.delete(db_app)
+        db.commit()
+    return db_app
+
+def delete_casesheet(db: Session, casesheet_id: int):
+    db_casesheet = db.query(models.Casesheet).filter(models.Casesheet.id == casesheet_id).first()
+    if db_casesheet:
+        db.delete(db_casesheet)
+        db.commit()
+    return db_casesheet
+
+def delete_medicine_stock(db: Session, stock_id: int):
+    db_stock = db.query(models.MedicineStock).filter(models.MedicineStock.id == stock_id).first()
+    if db_stock:
+        db.delete(db_stock)
+        db.commit()
+    return db_stock
+
+def delete_ip_admission(db: Session, admission_id: int):
+    db_admission = db.query(models.IPAdmission).filter(models.IPAdmission.id == admission_id).first()
+    if db_admission:
+        db.query(models.IPBill).filter(models.IPBill.admission_id == admission_id).update({models.IPBill.admission_id: None}, synchronize_session=False)
+        db.delete(db_admission)
+        db.commit()
+    return db_admission
+
+def delete_lab_report(db: Session, report_id: int):
+    db_report = db.query(models.LabReport).filter(models.LabReport.id == report_id).first()
+    if db_report:
+        db.delete(db_report)
+        db.commit()
+    return db_report
+
+def delete_lab_order(db: Session, order_id: int):
+    db_order = db.query(models.LabOrder).filter(models.LabOrder.id == order_id).first()
+    if db_order:
+        db.query(models.LabSample).filter(models.LabSample.order_id == order_id).delete(synchronize_session=False)
+        db.delete(db_order)
+        db.commit()
+    return db_order
+
+def delete_lab_sample(db: Session, sample_id: int):
+    db_sample = db.query(models.LabSample).filter(models.LabSample.id == sample_id).first()
+    if db_sample:
+        db.delete(db_sample)
+        db.commit()
+    return db_sample
 
 def create_lab_sample(db: Session, sample: schemas.LabSampleCreate):
     db_sample = models.LabSample(**sample.dict())
@@ -886,87 +967,6 @@ def delete_patient(db: Session, patient_id: int):
 
 def delete_op_token(db: Session, token_id: int):
     db_token = db.query(models.OPToken).filter(models.OPToken.id == token_id).first()
-    if db_token:
-        db.delete(db_token)
-        db.commit()
-    return db_token
-
-def delete_appointment(db: Session, appointment_id: int):
-    db_app = db.query(models.Appointment).filter(models.Appointment.id == appointment_id).first()
-    if db_app:
-        db.delete(db_app)
-        db.commit()
-    return db_app
-
-def get_casesheet(db: Session, casesheet_id: int):
-    return db.query(models.Casesheet).filter(models.Casesheet.id == casesheet_id).first()
-
-def update_casesheet(db: Session, casesheet_id: int, casesheet_update: schemas.CasesheetUpdate):
-    db_casesheet = db.query(models.Casesheet).filter(models.Casesheet.id == casesheet_id).first()
-    if db_casesheet:
-        update_data = casesheet_update.dict(exclude_unset=True)
-        for key, value in update_data.items():
-            setattr(db_casesheet, key, value)
-        db.commit()
-        db.refresh(db_casesheet)
-    return db_casesheet
-
-def delete_casesheet(db: Session, casesheet_id: int):
-    db_casesheet = db.query(models.Casesheet).filter(models.Casesheet.id == casesheet_id).first()
-    if db_casesheet:
-        db.delete(db_casesheet)
-        db.commit()
-    return db_casesheet
-
-def update_medicine_stock(db: Session, stock_id: int, stock_update: schemas.MedicineStockUpdate):
-    db_stock = db.query(models.MedicineStock).filter(models.MedicineStock.id == stock_id).first()
-    if db_stock:
-        update_data = stock_update.dict(exclude_unset=True)
-        for key, value in update_data.items():
-            setattr(db_stock, key, value)
-        db.commit()
-        db.refresh(db_stock)
-    return db_stock
-
-def delete_medicine_stock(db: Session, stock_id: int):
-    db_stock = db.query(models.MedicineStock).filter(models.MedicineStock.id == stock_id).first()
-    if db_stock:
-        db.delete(db_stock)
-        db.commit()
-    return db_stock
-
-def update_ip_admission(db: Session, admission_id: int, admission_update: schemas.IPAdmissionUpdate):
-    db_admission = db.query(models.IPAdmission).filter(models.IPAdmission.id == admission_id).first()
-    if db_admission:
-        update_data = admission_update.dict(exclude_unset=True)
-        for key, value in update_data.items():
-            setattr(db_admission, key, value)
-        db.commit()
-        db.refresh(db_admission)
-    return db_admission
-
-def delete_ip_admission(db: Session, admission_id: int):
-    db_admission = db.query(models.IPAdmission).filter(models.IPAdmission.id == admission_id).first()
-    if db_admission:
-        db.delete(db_admission)
-        db.commit()
-    return db_admission
-
-def update_lab_report(db: Session, report_id: int, report_update: schemas.LabReportUpdate):
-    db_report = db.query(models.LabReport).filter(models.LabReport.id == report_id).first()
-    if db_report:
-        update_data = report_update.dict(exclude_unset=True)
-        for key, value in update_data.items():
-            setattr(db_report, key, value)
-        db.commit()
-        db.refresh(db_report)
-    return db_report
-
-def delete_lab_report(db: Session, report_id: int):
-    db_report = db.query(models.LabReport).filter(models.LabReport.id == report_id).first()
-    if db_report:
-        db.delete(db_report)
-        db.commit()
     return db_report
 
 def delete_lab_order(db: Session, order_id: int):
