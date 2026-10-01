@@ -62,6 +62,8 @@ interface OPToken {
   is_billed: boolean;
   details?: Record<string, any>;
   patient?: Patient;
+  created_at?: string;
+  doctor_name?: string;
 }
 
 interface Appointment {
@@ -85,6 +87,7 @@ interface MedicineStock {
   quantity: number;
   unit_price: number;
   min_stock_level: number;
+  details?: Record<string, any>;
 }
 
 interface PharmacyBillItem {
@@ -162,6 +165,9 @@ interface LabOrder {
   status: string;
   patient?: Patient;
   test?: LabTestMaster;
+  created_at?: string;
+  priority?: string;
+  remarks?: string;
 }
 
 interface LabSample {
@@ -517,8 +523,8 @@ export default function App() {
   const [selectedResultEntryOrder, setSelectedResultEntryOrder] = useState<any>(null);
 
   const [editOrderForm, setEditOrderForm] = useState({ priority: 'Routine', remarks: '' });
-  const [collectSampleForm, setCollectSampleForm] = useState({ barcode: '', collected_by: '', sample_type: '', container_type: '', remarks: '' });
-  const [resultEntryForm, setResultEntryForm] = useState<{parameter: string, result: string, unit: string, range: string, flag: string}[]>([]);
+  const [collectSampleForm, setCollectSampleForm] = useState<{ barcode: string; collected_by: string; sample_type: string; container_type?: string; remarks?: string }>({ barcode: '', collected_by: '', sample_type: '', container_type: '', remarks: '' });
+  const [resultEntryForm, setResultEntryForm] = useState<{parameter: string, result: string, unit: string, range: string, normal_range?: string, flag: string, remarks?: string}[]>([]);
 
   // Axios Interceptor for Auth
   useEffect(() => {
@@ -1474,8 +1480,8 @@ Follow-up: ${casesheetForm.followUpDate}`.trim();
       const res = await fetch(`${API_BASE}/casesheets/`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          patient_id: selectedOPToken.patient_id,
-          token_id: selectedOPToken.id,
+          patient_id: selectedOPToken?.patient_id,
+          token_id: selectedOPToken?.id,
           symptoms: combinedSymptoms,
           diagnosis: combinedDiagnosis,
           vitals_bp: casesheetForm.vitalsBp,
@@ -1561,7 +1567,7 @@ Follow-up: ${casesheetForm.followUpDate}`.trim();
 
       let newCart = [...billingCart];
       let loadedCount = 0;
-      let missingList = [];
+      let missingList: string[] = [];
 
       latest.prescribed_medicines.forEach((pm: any) => {
         // Try to match by generic name or brand name (or just medicine name if we had normalized it, but we can search inventory name)
