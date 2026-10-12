@@ -111,7 +111,7 @@ class AppointmentCreate(AppointmentBase):
 class AppointmentResponse(AppointmentBase):
     id: int
     patient: Optional[Patient] = None
-    
+
     class Config:
         from_attributes = True
 
@@ -281,6 +281,9 @@ class IPAdmission(IPAdmissionBase):
 # ----------------- LAB REPORT SCHEMAS -----------------
 class LabReportBase(BaseModel):
     patient_id: int
+    order_id: Optional[int] = None
+    sample_id: Optional[int] = None
+    report_number: Optional[str] = None
     test_name: str
     result_value: Optional[str] = None
     normal_range: Optional[str] = None
@@ -288,14 +291,55 @@ class LabReportBase(BaseModel):
     reported_by: Optional[str] = None
     remarks: Optional[str] = None
     results_data: Optional[Any] = None
+    report_status: Optional[str] = "Draft"
+    verified_by: Optional[str] = None
+    verification_date: Optional[datetime] = None
+    is_verified: Optional[bool] = False
+    is_published: Optional[bool] = False
+    published_by: Optional[str] = None
+    published_at: Optional[datetime] = None
+    version: Optional[int] = 1
+    has_critical_values: Optional[bool] = False
+    has_abnormal_values: Optional[bool] = False
+    pathologist_comments: Optional[str] = None
 
 class LabReportCreate(LabReportBase):
     pass
+
+class LabReportVersionSchema(BaseModel):
+    id: int
+    report_id: int
+    version_number: int
+    previous_data: Optional[Any] = None
+    new_data: Optional[Any] = None
+    changed_by: Optional[str] = None
+    change_reason: Optional[str] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+class LabAttachmentSchema(BaseModel):
+    id: int
+    patient_id: int
+    order_id: Optional[int] = None
+    report_id: Optional[int] = None
+    file_name: str
+    file_type: str
+    file_size: int
+    file_path: str
+    uploaded_by: Optional[str] = None
+    uploaded_at: datetime
+
+    class Config:
+        from_attributes = True
 
 class LabReport(LabReportBase):
     id: int
     date_conducted: datetime
     patient: Optional[Patient] = None
+    versions: Optional[List[LabReportVersionSchema]] = []
+    attachments: Optional[List[LabAttachmentSchema]] = []
 
     class Config:
         from_attributes = True
@@ -307,11 +351,21 @@ class LabTestMasterBase(BaseModel):
     category: Optional[str] = None
     department: Optional[str] = None
     sample_type: Optional[str] = None
+    container_type: Optional[str] = None
+    method: Optional[str] = None
     unit: Optional[str] = None
     reference_range: Optional[str] = None
     normal_range_male: Optional[str] = None
     normal_range_female: Optional[str] = None
     normal_range_child: Optional[str] = None
+    normal_low: Optional[float] = None
+    normal_high: Optional[float] = None
+    critical_range: Optional[str] = None
+    critical_low: Optional[float] = None
+    critical_high: Optional[float] = None
+    result_type: Optional[str] = "Numeric"
+    options: Optional[Any] = None
+    parameters: Optional[Any] = []
     price: float = 0.0
     tat_hours: int = 24
     is_active: bool = True
@@ -325,11 +379,21 @@ class LabTestMasterUpdate(BaseModel):
     category: Optional[str] = None
     department: Optional[str] = None
     sample_type: Optional[str] = None
+    container_type: Optional[str] = None
+    method: Optional[str] = None
     unit: Optional[str] = None
     reference_range: Optional[str] = None
     normal_range_male: Optional[str] = None
     normal_range_female: Optional[str] = None
     normal_range_child: Optional[str] = None
+    normal_low: Optional[float] = None
+    normal_high: Optional[float] = None
+    critical_range: Optional[str] = None
+    critical_low: Optional[float] = None
+    critical_high: Optional[float] = None
+    result_type: Optional[str] = None
+    options: Optional[Any] = None
+    parameters: Optional[Any] = None
     price: Optional[float] = None
     tat_hours: Optional[int] = None
     is_active: Optional[bool] = None
@@ -342,23 +406,33 @@ class LabTestMaster(LabTestMasterBase):
 
 class LabOrderBase(BaseModel):
     patient_id: int
+    order_number: Optional[str] = None
+    encounter_id: Optional[int] = None
     doctor_name: Optional[str] = None
     test_id: int
     status: str = "Pending"
     priority: str = "Routine"
+    clinical_indication: Optional[str] = None
+    diagnosis: Optional[str] = None
     remarks: Optional[str] = None
+    created_by: Optional[str] = None
 
 class LabOrderCreate(LabOrderBase):
     pass
 
 class LabOrderUpdate(BaseModel):
+    order_number: Optional[str] = None
     status: Optional[str] = None
     priority: Optional[str] = None
+    doctor_name: Optional[str] = None
+    clinical_indication: Optional[str] = None
+    diagnosis: Optional[str] = None
     remarks: Optional[str] = None
 
 class LabOrder(LabOrderBase):
     id: int
     order_date: datetime
+    updated_at: Optional[datetime] = None
     patient: Optional[Patient] = None
     test: Optional[LabTestMaster] = None
 
@@ -367,10 +441,15 @@ class LabOrder(LabOrderBase):
 
 class LabSampleBase(BaseModel):
     order_id: int
+    sample_number: Optional[str] = None
     sample_type: str
     collected_by: Optional[str] = None
     container_type: Optional[str] = None
     barcode: Optional[str] = None
+    received_date: Optional[datetime] = None
+    received_by: Optional[str] = None
+    rejection_reason: Optional[str] = None
+    condition_notes: Optional[str] = None
     remarks: Optional[str] = None
     status: str = "Pending"
 
@@ -378,10 +457,15 @@ class LabSampleCreate(LabSampleBase):
     pass
 
 class LabSampleUpdate(BaseModel):
+    sample_number: Optional[str] = None
     sample_type: Optional[str] = None
     collected_by: Optional[str] = None
     container_type: Optional[str] = None
     barcode: Optional[str] = None
+    received_date: Optional[datetime] = None
+    received_by: Optional[str] = None
+    rejection_reason: Optional[str] = None
+    condition_notes: Optional[str] = None
     remarks: Optional[str] = None
     status: Optional[str] = None
 
@@ -655,3 +739,187 @@ class LabReportUpdate(BaseModel):
     reported_by: Optional[str] = None
     remarks: Optional[str] = None
     results_data: Optional[Any] = None
+
+# ============================
+# SCAN / RADIOLOGY MODULE SCHEMAS
+# ============================
+class ScanTypeMasterBase(BaseModel):
+    code: str
+    name: str
+    description: Optional[str] = None
+    is_active: bool = True
+
+class ScanTypeMasterCreate(ScanTypeMasterBase):
+    pass
+
+class ScanTypeMasterResponse(ScanTypeMasterBase):
+    id: int
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+class ScanAttachmentResponse(BaseModel):
+    id: int
+    scan_id: int
+    file_name: str
+    original_name: str
+    file_type: str
+    file_size: int
+    file_category: str
+    file_path: str
+    storage_url: str
+    uploaded_by: Optional[str] = None
+    uploaded_at: datetime
+
+    class Config:
+        from_attributes = True
+
+class ScanFindingsBase(BaseModel):
+    findings: Optional[str] = None
+    observations: Optional[str] = None
+    measurements: Optional[List[Dict[str, Any]]] = []
+    abnormalities: Optional[List[str]] = []
+    organ_specific_findings: Optional[Dict[str, Any]] = {}
+    impression: Optional[str] = None
+    diagnosis: Optional[str] = None
+    recommendations: Optional[List[str]] = []
+    follow_up_required: bool = False
+    follow_up_date: Optional[date] = None
+
+class ScanFindingsCreate(ScanFindingsBase):
+    pass
+
+class ScanFindingsResponse(ScanFindingsBase):
+    id: int
+    scan_id: int
+
+    class Config:
+        from_attributes = True
+
+class ScanAuditLogResponse(BaseModel):
+    id: int
+    scan_id: int
+    action: str
+    changed_by: str
+    changes: Optional[Dict[str, Any]] = {}
+    timestamp: datetime
+
+    class Config:
+        from_attributes = True
+
+class ScanRecordCreate(BaseModel):
+    patient_id: int
+    scan_type: str
+    scan_name: str
+    scan_date: date
+    scan_time: Optional[str] = None
+    referred_by_doctor: Optional[str] = None
+    department: Optional[str] = None
+    hospital_location: Optional[str] = None
+    technician_name: Optional[str] = None
+    radiologist_name: Optional[str] = None
+    scan_status: str = "Draft"
+
+    clinical_history: Optional[str] = None
+    chief_complaint: Optional[str] = None
+    symptoms: Optional[str] = None
+    provisional_diagnosis: Optional[str] = None
+    indication_for_scan: Optional[str] = None
+    relevant_medical_history: Optional[str] = None
+    previous_scan_reference: Optional[str] = None
+
+    report_title: Optional[str] = None
+    report_number: Optional[str] = None
+    report_date: Optional[datetime] = None
+    reported_by: Optional[str] = None
+    verified_by: Optional[str] = None
+    report_status: str = "Draft"
+    doctor_comments: Optional[str] = None
+
+    findings: Optional[ScanFindingsCreate] = None
+
+class ScanRecordUpdate(BaseModel):
+    scan_type: Optional[str] = None
+    scan_name: Optional[str] = None
+    scan_date: Optional[date] = None
+    scan_time: Optional[str] = None
+    referred_by_doctor: Optional[str] = None
+    department: Optional[str] = None
+    hospital_location: Optional[str] = None
+    technician_name: Optional[str] = None
+    radiologist_name: Optional[str] = None
+    scan_status: Optional[str] = None
+
+    clinical_history: Optional[str] = None
+    chief_complaint: Optional[str] = None
+    symptoms: Optional[str] = None
+    provisional_diagnosis: Optional[str] = None
+    indication_for_scan: Optional[str] = None
+    relevant_medical_history: Optional[str] = None
+    previous_scan_reference: Optional[str] = None
+
+    report_title: Optional[str] = None
+    report_number: Optional[str] = None
+    report_date: Optional[datetime] = None
+    reported_by: Optional[str] = None
+    verified_by: Optional[str] = None
+    report_status: Optional[str] = None
+    doctor_comments: Optional[str] = None
+
+    findings: Optional[ScanFindingsCreate] = None
+
+class ScanRecordResponse(BaseModel):
+    id: int
+    scan_number: str
+    patient_id: int
+    scan_type_id: Optional[int] = None
+    scan_type: str
+    scan_name: str
+    scan_date: date
+    scan_time: Optional[str] = None
+    referred_by_doctor: Optional[str] = None
+    department: Optional[str] = None
+    hospital_location: Optional[str] = None
+    technician_name: Optional[str] = None
+    radiologist_name: Optional[str] = None
+    scan_status: str
+
+    clinical_history: Optional[str] = None
+    chief_complaint: Optional[str] = None
+    symptoms: Optional[str] = None
+    provisional_diagnosis: Optional[str] = None
+    indication_for_scan: Optional[str] = None
+    relevant_medical_history: Optional[str] = None
+    previous_scan_reference: Optional[str] = None
+
+    report_title: Optional[str] = None
+    report_number: Optional[str] = None
+    report_date: Optional[datetime] = None
+    reported_by: Optional[str] = None
+    verified_by: Optional[str] = None
+    report_status: Optional[str] = None
+    doctor_comments: Optional[str] = None
+
+    created_by: Optional[str] = None
+    created_at: datetime
+    updated_by: Optional[str] = None
+    updated_at: datetime
+    version: int
+    record_status: str
+
+    patient: Optional[Patient] = None
+    findings: Optional[ScanFindingsResponse] = None
+    attachments: List[ScanAttachmentResponse] = []
+
+    class Config:
+        from_attributes = True
+
+class PatientScanAnalysisResponse(BaseModel):
+    patient: Patient
+    total_scans: int
+    scan_types_summary: Dict[str, int]
+    scan_history: List[ScanRecordResponse]
+    chronological_progression: List[Dict[str, Any]]
+    measurement_trends: List[Dict[str, Any]]
+    medical_timeline: List[Dict[str, Any]]

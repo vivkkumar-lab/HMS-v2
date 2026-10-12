@@ -1,45 +1,74 @@
-from fastapi import FastAPI, Depends, HTTPException, Query, Request, Response, status
+import os
+import time
+from datetime import date, timedelta, datetime
+from typing import List, Optional
+from fastapi import FastAPI, Depends, HTTPException, Query, Request, Response, status, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
 from fastapi.security import OAuth2PasswordRequestForm
+from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 from sqlalchemy.orm import Session
-from typing import List, Optional
-from datetime import date, timedelta, datetime
-import time
 from .database import engine, Base, get_db
 from . import crud, schemas, models, auth
 
 # Create database tables
 Base.metadata.create_all(bind=engine)
 
-# Safely add JSON details columns (Incremental Migration)
+# Ensure upload directories exist
+os.makedirs("backend/uploads/scans", exist_ok=True)
+os.makedirs("backend/uploads/lab", exist_ok=True)
+
+# Safely add JSON & Enterprise columns (Incremental Safe Migration)
 from sqlalchemy import text
 with engine.begin() as conn:
-    try:
-        conn.execute(text("ALTER TABLE patients ADD COLUMN details JSON DEFAULT '{}'"))
-    except Exception:
-        pass
-    try:
-        conn.execute(text("ALTER TABLE op_tokens ADD COLUMN details JSON DEFAULT '{}'"))
-    except Exception:
-        pass
-    try:
-        conn.execute(text("ALTER TABLE lab_reports ADD COLUMN results_data JSON"))
-    except Exception:
-        pass
-    try:
-        conn.execute(text("ALTER TABLE lab_orders ADD COLUMN priority VARCHAR DEFAULT 'Routine'"))
-    except Exception:
-        pass
-    try:
-        conn.execute(text("ALTER TABLE lab_orders ADD COLUMN remarks TEXT"))
-    except Exception:
-        pass
-    try:
-        conn.execute(text("ALTER TABLE lab_samples ADD COLUMN barcode VARCHAR"))
-    except Exception:
-        pass
+    for migration_sql in [
+        "ALTER TABLE patients ADD COLUMN IF NOT EXISTS details JSON DEFAULT '{}'",
+        "ALTER TABLE op_tokens ADD COLUMN IF NOT EXISTS details JSON DEFAULT '{}'",
+        "ALTER TABLE lab_reports ADD COLUMN IF NOT EXISTS results_data JSON",
+        "ALTER TABLE lab_reports ADD COLUMN IF NOT EXISTS order_id INTEGER",
+        "ALTER TABLE lab_reports ADD COLUMN IF NOT EXISTS sample_id INTEGER",
+        "ALTER TABLE lab_reports ADD COLUMN IF NOT EXISTS report_number VARCHAR",
+        "ALTER TABLE lab_reports ADD COLUMN IF NOT EXISTS report_status VARCHAR DEFAULT 'Draft'",
+        "ALTER TABLE lab_reports ADD COLUMN IF NOT EXISTS verified_by VARCHAR",
+        "ALTER TABLE lab_reports ADD COLUMN IF NOT EXISTS verification_date TIMESTAMP",
+        "ALTER TABLE lab_reports ADD COLUMN IF NOT EXISTS is_verified BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE lab_reports ADD COLUMN IF NOT EXISTS is_published BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE lab_reports ADD COLUMN IF NOT EXISTS published_by VARCHAR",
+        "ALTER TABLE lab_reports ADD COLUMN IF NOT EXISTS published_at TIMESTAMP",
+        "ALTER TABLE lab_reports ADD COLUMN IF NOT EXISTS version INTEGER DEFAULT 1",
+        "ALTER TABLE lab_reports ADD COLUMN IF NOT EXISTS has_critical_values BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE lab_reports ADD COLUMN IF NOT EXISTS has_abnormal_values BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE lab_reports ADD COLUMN IF NOT EXISTS pathologist_comments TEXT",
+        "ALTER TABLE lab_test_master ADD COLUMN IF NOT EXISTS container_type VARCHAR",
+        "ALTER TABLE lab_test_master ADD COLUMN IF NOT EXISTS method VARCHAR",
+        "ALTER TABLE lab_test_master ADD COLUMN IF NOT EXISTS critical_range VARCHAR",
+        "ALTER TABLE lab_test_master ADD COLUMN IF NOT EXISTS normal_low FLOAT",
+        "ALTER TABLE lab_test_master ADD COLUMN IF NOT EXISTS normal_high FLOAT",
+        "ALTER TABLE lab_test_master ADD COLUMN IF NOT EXISTS critical_low FLOAT",
+        "ALTER TABLE lab_test_master ADD COLUMN IF NOT EXISTS critical_high FLOAT",
+        "ALTER TABLE lab_test_master ADD COLUMN IF NOT EXISTS result_type VARCHAR DEFAULT 'Numeric'",
+        "ALTER TABLE lab_test_master ADD COLUMN IF NOT EXISTS options JSON",
+        "ALTER TABLE lab_test_master ADD COLUMN IF NOT EXISTS parameters JSON DEFAULT '[]'",
+        "ALTER TABLE lab_orders ADD COLUMN IF NOT EXISTS priority VARCHAR DEFAULT 'Routine'",
+        "ALTER TABLE lab_orders ADD COLUMN IF NOT EXISTS remarks TEXT",
+        "ALTER TABLE lab_orders ADD COLUMN IF NOT EXISTS order_number VARCHAR",
+        "ALTER TABLE lab_orders ADD COLUMN IF NOT EXISTS encounter_id INTEGER",
+        "ALTER TABLE lab_orders ADD COLUMN IF NOT EXISTS clinical_indication TEXT",
+        "ALTER TABLE lab_orders ADD COLUMN IF NOT EXISTS diagnosis TEXT",
+        "ALTER TABLE lab_orders ADD COLUMN IF NOT EXISTS created_by VARCHAR",
+        "ALTER TABLE lab_orders ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+        "ALTER TABLE lab_samples ADD COLUMN IF NOT EXISTS barcode VARCHAR",
+        "ALTER TABLE lab_samples ADD COLUMN IF NOT EXISTS sample_number VARCHAR",
+        "ALTER TABLE lab_samples ADD COLUMN IF NOT EXISTS received_date TIMESTAMP",
+        "ALTER TABLE lab_samples ADD COLUMN IF NOT EXISTS received_by VARCHAR",
+        "ALTER TABLE lab_samples ADD COLUMN IF NOT EXISTS rejection_reason TEXT",
+        "ALTER TABLE lab_samples ADD COLUMN IF NOT EXISTS condition_notes TEXT"
+    ]:
+        try:
+            conn.execute(text(migration_sql))
+        except Exception:
+            pass
 
 app = FastAPI(
     title="Hospital Management & Billing API",
@@ -57,7 +86,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         start_time = time.time()
         response = await call_next(request)
-        
+
         # XSS Protection
         response.headers["X-XSS-Protection"] = "1; mode=block"
         # Prevent MIME type sniffing
@@ -92,7 +121,7 @@ class AuditTrailMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next):
         response = await call_next(request)
-        
+
         # Only audit write operations on success
         if (
             request.method in self.WRITE_METHODS
@@ -132,7 +161,7 @@ class AuditTrailMiddleware(BaseHTTPMiddleware):
                     db.close()
             except Exception:
                 pass  # Never let audit logging break the main request
-        
+
         return response
 
 
@@ -148,14 +177,14 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         client_ip = request.client.host if request.client else "unknown"
         now = time.time()
         window_start = now - RATE_LIMIT_WINDOW
-        
+
         if client_ip not in REQUEST_COUNTS:
             REQUEST_COUNTS[client_ip] = []
-        
+
         # Clean old requests
         REQUEST_COUNTS[client_ip] = [t for t in REQUEST_COUNTS[client_ip] if t > window_start]
         REQUEST_COUNTS[client_ip].append(now)
-        
+
         if len(REQUEST_COUNTS[client_ip]) > RATE_LIMIT_MAX:
             return JSONResponse(
                 status_code=429,
@@ -173,6 +202,7 @@ def startup_event():
             hashed = auth.get_password_hash("admin123")
             user_schema = schemas.UserCreate(username="admin", password="admin123", role="Admin")
             crud.create_user(db, user_schema, hashed)
+        crud.init_default_scan_types(db)
     finally:
         db.close()
 
@@ -191,6 +221,9 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type", "X-Requested-With"],
     expose_headers=["X-Process-Time"]
 )
+
+# Mount uploads static directory
+app.mount("/uploads", StaticFiles(directory="backend/uploads"), name="uploads")
 
 # ----------------- AUTHENTICATION -----------------
 @app.post("/login", response_model=schemas.Token)
@@ -522,6 +555,59 @@ def create_lab_report(report: schemas.LabReportCreate, db: Session = Depends(get
 def read_lab_reports(patient_id: Optional[int] = None, db: Session = Depends(get_db)):
     return crud.get_lab_reports(db=db, patient_id=patient_id)
 
+@app.post("/lab-reports/{report_id}/verify", response_model=schemas.LabReport)
+def verify_lab_report_endpoint(
+    report_id: int,
+    payload: dict,
+    db: Session = Depends(get_db)
+):
+    verified_by = payload.get("verified_by", "Dr. Pathologist MD")
+    comments = payload.get("comments")
+    report = crud.verify_lab_report(db, report_id, verified_by, comments)
+    if not report:
+        raise HTTPException(status_code=404, detail="Lab report not found")
+    return report
+
+@app.post("/lab-reports/{report_id}/publish", response_model=schemas.LabReport)
+def publish_lab_report_endpoint(
+    report_id: int,
+    payload: dict,
+    db: Session = Depends(get_db)
+):
+    published_by = payload.get("published_by", "Lab Admin")
+    report = crud.publish_lab_report(db, report_id, published_by)
+    if not report:
+        raise HTTPException(status_code=404, detail="Lab report not found")
+    return report
+
+@app.post("/lab-reports/{report_id}/revise", response_model=schemas.LabReport)
+def revise_lab_report_endpoint(
+    report_id: int,
+    payload: dict,
+    db: Session = Depends(get_db)
+):
+    new_results_data = payload.get("results_data")
+    new_result_value = payload.get("result_value")
+    changed_by = payload.get("changed_by", "Dr. Pathologist MD")
+    change_reason = payload.get("change_reason", "Clinical correction")
+    remarks = payload.get("remarks")
+
+    if not change_reason:
+        raise HTTPException(status_code=400, detail="Change reason is compulsory for report revision.")
+
+    report = crud.revise_lab_report(
+        db,
+        report_id=report_id,
+        new_results_data=new_results_data,
+        new_result_value=new_result_value,
+        changed_by=changed_by,
+        change_reason=change_reason,
+        remarks=remarks
+    )
+    if not report:
+        raise HTTPException(status_code=404, detail="Lab report not found")
+    return report
+
 # ----------------- NEW LAB MANAGEMENT ENDPOINTS -----------------
 @app.post("/lab-test-masters/", response_model=schemas.LabTestMaster)
 def create_lab_test_master(test: schemas.LabTestMasterCreate, db: Session = Depends(get_db)):
@@ -582,6 +668,144 @@ def update_lab_sample_status(sample_id: int, status: str, db: Session = Depends(
 @app.put("/lab-samples/{sample_id}", response_model=schemas.LabSample)
 def update_lab_sample(sample_id: int, sample_data: schemas.LabSampleUpdate, db: Session = Depends(get_db)):
     return crud.update_lab_sample(db=db, sample_id=sample_id, sample_data=sample_data)
+
+@app.post("/lab-samples/{sample_id}/receive", response_model=schemas.LabSample)
+def receive_lab_sample_endpoint(sample_id: int, payload: dict, db: Session = Depends(get_db)):
+    db_sample = db.query(models.LabSample).filter(models.LabSample.id == sample_id).first()
+    if not db_sample:
+        raise HTTPException(status_code=404, detail="Lab Sample not found")
+    db_sample.status = "Received"
+    db_sample.received_date = datetime.utcnow()
+    db_sample.received_by = payload.get("received_by", "Lab Tech")
+    db_sample.condition_notes = payload.get("condition_notes", "Sample in good condition")
+    if db_sample.order_id:
+        crud.update_lab_order_status(db, db_sample.order_id, "Sample Received")
+    db.commit()
+    db.refresh(db_sample)
+    return db_sample
+
+@app.post("/lab-samples/{sample_id}/reject", response_model=schemas.LabSample)
+def reject_lab_sample_endpoint(sample_id: int, payload: dict, db: Session = Depends(get_db)):
+    reason = payload.get("rejection_reason")
+    if not reason:
+        raise HTTPException(status_code=400, detail="Rejection reason is required")
+    db_sample = db.query(models.LabSample).filter(models.LabSample.id == sample_id).first()
+    if not db_sample:
+        raise HTTPException(status_code=404, detail="Lab Sample not found")
+    db_sample.status = "Rejected"
+    db_sample.rejection_reason = reason
+    if db_sample.order_id:
+        crud.update_lab_order_status(db, db_sample.order_id, "Sample Rejected")
+    db.commit()
+    db.refresh(db_sample)
+    return db_sample
+
+# ----------------- ENTERPRISE PATIENT LAB HISTORY & TRENDS -----------------
+@app.get("/api/patients/{patient_id}/lab-history")
+@app.get("/patients/{patient_id}/lab-history")
+def get_patient_lab_history_endpoint(patient_id: int, db: Session = Depends(get_db)):
+    patient = db.query(models.Patient).filter(models.Patient.id == patient_id).first()
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+    reports = db.query(models.LabReport).filter(models.LabReport.patient_id == patient_id).order_by(models.LabReport.date_conducted.desc()).all()
+    orders = db.query(models.LabOrder).filter(models.LabOrder.patient_id == patient_id).order_by(models.LabOrder.order_date.desc()).all()
+    return {
+        "patient": patient,
+        "reports": reports,
+        "orders": orders
+    }
+
+@app.get("/api/patients/{patient_id}/lab-trends")
+@app.get("/patients/{patient_id}/lab-trends")
+def get_patient_lab_trends_endpoint(patient_id: int, test_name: Optional[str] = None, db: Session = Depends(get_db)):
+    query = db.query(models.LabReport).filter(models.LabReport.patient_id == patient_id)
+    if test_name:
+        query = query.filter(models.LabReport.test_name.ilike(f"%{test_name}%"))
+    reports = query.order_by(models.LabReport.date_conducted.asc()).all()
+
+    points = []
+    for r in reports:
+        dt_str = r.date_conducted.strftime("%Y-%m-%d %H:%M") if r.date_conducted else ""
+        if r.result_value:
+            try:
+                num_val = float(str(r.result_value).replace(',', '').strip())
+                points.append({
+                    "date": dt_str,
+                    "test_name": r.test_name,
+                    "parameter": r.test_name,
+                    "value": num_val,
+                    "unit": r.units or "",
+                    "normal_range": r.normal_range or "",
+                    "report_id": r.id
+                })
+            except (ValueError, TypeError):
+                pass
+        if isinstance(r.results_data, list):
+            for item in r.results_data:
+                if isinstance(item, dict):
+                    val_raw = item.get("value") or item.get("result")
+                    p_name = item.get("param_name") or item.get("parameter") or r.test_name
+                    if val_raw is not None:
+                        try:
+                            num_val = float(str(val_raw).replace(',', '').strip())
+                            points.append({
+                                "date": dt_str,
+                                "test_name": r.test_name,
+                                "parameter": p_name,
+                                "value": num_val,
+                                "unit": item.get("unit") or r.units or "",
+                                "normal_range": item.get("normal_range") or r.normal_range or "",
+                                "flag": item.get("flag", "NORMAL"),
+                                "report_id": r.id
+                            })
+                        except (ValueError, TypeError):
+                            pass
+    return {"patient_id": patient_id, "data_points": points}
+
+# ----------------- FILE ATTACHMENTS FOR LAB -----------------
+@app.post("/api/lab-attachments/upload")
+async def upload_lab_attachment_endpoint(
+    patient_id: int,
+    order_id: Optional[int] = None,
+    report_id: Optional[int] = None,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db)
+):
+    if not file:
+        raise HTTPException(status_code=400, detail="No file provided")
+
+    ext = os.path.splitext(file.filename)[1].lower()
+    allowed_exts = {".pdf", ".png", ".jpg", ".jpeg", ".txt", ".csv", ".doc", ".docx"}
+    if ext not in allowed_exts:
+        raise HTTPException(status_code=400, detail=f"File extension {ext} not permitted.")
+
+    content = await file.read()
+    if len(content) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="File size exceeds maximum 10MB limit.")
+
+    safe_filename = f"lab_{patient_id}_{int(time.time())}{ext}"
+    save_path = os.path.join("backend/uploads/lab", safe_filename)
+    with open(save_path, "wb") as f:
+        f.write(content)
+
+    attachment = models.LabAttachment(
+        patient_id=patient_id,
+        order_id=order_id,
+        report_id=report_id,
+        file_name=file.filename,
+        file_type=file.content_type or "application/octet-stream",
+        file_size=len(content),
+        file_path=f"/uploads/lab/{safe_filename}",
+        uploaded_by="Lab Tech"
+    )
+    db.add(attachment)
+    db.commit()
+    db.refresh(attachment)
+    return attachment
+
+@app.get("/api/lab-attachments/patient/{patient_id}")
+def get_patient_lab_attachments(patient_id: int, db: Session = Depends(get_db)):
+    return db.query(models.LabAttachment).filter(models.LabAttachment.patient_id == patient_id).all()
 
 # ----------------- GLOBAL SEARCH (NEW) -----------------
 @app.get("/search/")
@@ -833,7 +1057,7 @@ def backup_database(
     patients = db.query(models.Patient).all()
     users = db.query(models.User).all()
     inventory = db.query(models.MedicineStock).all()
-    
+
     backup_data = {
         "backup_date": datetime.utcnow().isoformat(),
         "hospital": "MedBill Pro",
@@ -841,7 +1065,7 @@ def backup_database(
         "users_count": len(users),
         "inventory_count": len(inventory),
     }
-    
+
     # Log audit
     db.add(models.AuditLog(
         user_id=current_user.id,
@@ -850,7 +1074,7 @@ def backup_database(
         details=f"Backup created with {len(patients)} patients"
     ))
     db.commit()
-    
+
     return backup_data
 
 # ----------------- INITIALIZE SEED DATA -----------------
@@ -869,16 +1093,16 @@ def seed_data(db: Session = Depends(get_db)):
         models.MedicineStock(name="Disposable Syringe 5ml", category="Consumable", batch_no="C301", quantity=500, unit_price=5.0, min_stock_level=50),
     ]
     db.add_all(initial_medicines)
-    
+
     sample_patient = models.Patient(name="Arun Kumar", age=45, gender="Male", phone="9876543210", address="Chennai, Tamil Nadu", blood_group="O+")
     db.add(sample_patient)
     db.commit()
-    
+
     db.refresh(sample_patient)
     sample_token = models.OPToken(patient_id=sample_patient.id, token_number=1, session="Morning", date=date.today(), status="Pending", fee=150.0)
     db.add(sample_token)
     db.commit()
-    
+
     return {"message": "Seed data populated successfully!"}
 
 
@@ -990,3 +1214,172 @@ def delete_lab_sample_endpoint(sample_id: int, db: Session = Depends(get_db)):
     if not db_sample:
         raise HTTPException(status_code=404, detail="Lab sample not found")
     return {"message": "Lab sample deleted successfully"}
+
+# ===========================================
+# SCAN / RADIOLOGY MODULE API ENDPOINTS
+# ===========================================
+
+# --- SCAN TYPES MASTER ---
+@app.get("/api/scan-types/", response_model=List[schemas.ScanTypeMasterResponse])
+@app.get("/scan-types/", response_model=List[schemas.ScanTypeMasterResponse])
+def get_scan_types_endpoint(db: Session = Depends(get_db)):
+    return crud.get_scan_types(db)
+
+@app.post("/api/scan-types/", response_model=schemas.ScanTypeMasterResponse)
+@app.post("/scan-types/", response_model=schemas.ScanTypeMasterResponse)
+def create_scan_type_endpoint(scan_type: schemas.ScanTypeMasterCreate, db: Session = Depends(get_db)):
+    return crud.create_scan_type(db, scan_type)
+
+# --- CREATE SCAN RECORD ---
+@app.post("/api/scans", response_model=schemas.ScanRecordResponse)
+@app.post("/scans", response_model=schemas.ScanRecordResponse)
+def create_scan_endpoint(
+    scan_in: schemas.ScanRecordCreate,
+    db: Session = Depends(get_db)
+):
+    try:
+        return crud.create_scan_record(db, scan_in=scan_in, created_by="admin")
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to create scan record: {str(e)}")
+
+# --- LIST ALL SCANS ---
+@app.get("/api/scans", response_model=List[schemas.ScanRecordResponse])
+@app.get("/scans", response_model=List[schemas.ScanRecordResponse])
+def get_all_scans_endpoint(limit: int = 100, db: Session = Depends(get_db)):
+    return crud.get_all_scans(db, limit=limit)
+
+# --- GET SCAN DETAILS ---
+@app.get("/api/scans/{scan_id}", response_model=schemas.ScanRecordResponse)
+@app.get("/scans/{scan_id}", response_model=schemas.ScanRecordResponse)
+def get_scan_details_endpoint(scan_id: int, db: Session = Depends(get_db)):
+    scan_obj = crud.get_scan_record(db, scan_id)
+    if not scan_obj:
+        raise HTTPException(status_code=404, detail="Scan record not found")
+    return scan_obj
+
+# --- GET PATIENT SCANS ---
+@app.get("/api/patients/{patient_id}/scans", response_model=List[schemas.ScanRecordResponse])
+@app.get("/patients/{patient_id}/scans", response_model=List[schemas.ScanRecordResponse])
+def get_patient_scans_endpoint(
+    patient_id: int,
+    scan_type: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
+    db: Session = Depends(get_db)
+):
+    patient = crud.get_patient(db, patient_id)
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+    return crud.get_patient_scans(db, patient_id=patient_id, scan_type=scan_type, status=status)
+
+# --- GET LATEST PATIENT SCAN ---
+@app.get("/api/patients/{patient_id}/scans/latest", response_model=schemas.ScanRecordResponse)
+@app.get("/patients/{patient_id}/scans/latest", response_model=schemas.ScanRecordResponse)
+def get_latest_patient_scan_endpoint(patient_id: int, db: Session = Depends(get_db)):
+    patient = crud.get_patient(db, patient_id)
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+    scan_obj = crud.get_latest_patient_scan(db, patient_id=patient_id)
+    if not scan_obj:
+        raise HTTPException(status_code=404, detail="No scan records found for this patient")
+    return scan_obj
+
+# --- UPDATE SCAN RECORD ---
+@app.put("/api/scans/{scan_id}", response_model=schemas.ScanRecordResponse)
+@app.put("/scans/{scan_id}", response_model=schemas.ScanRecordResponse)
+def update_scan_endpoint(
+    scan_id: int,
+    scan_update: schemas.ScanRecordUpdate,
+    db: Session = Depends(get_db)
+):
+    scan_obj = crud.update_scan_record(db, scan_id=scan_id, scan_update=scan_update, updated_by="admin")
+    if not scan_obj:
+        raise HTTPException(status_code=404, detail="Scan record not found")
+    return scan_obj
+
+# --- SOFT DELETE / CANCEL SCAN RECORD ---
+@app.delete("/api/scans/{scan_id}")
+@app.delete("/scans/{scan_id}")
+def delete_scan_endpoint(scan_id: int, db: Session = Depends(get_db)):
+    scan_obj = crud.delete_scan_record(db, scan_id=scan_id, updated_by="admin")
+    if not scan_obj:
+        raise HTTPException(status_code=404, detail="Scan record not found")
+    return {"message": f"Scan record {scan_obj.scan_number} has been cancelled"}
+
+# --- UPLOAD SCAN ATTACHMENT ---
+@app.post("/api/scans/{scan_id}/attachments", response_model=schemas.ScanAttachmentResponse)
+@app.post("/scans/{scan_id}/attachments", response_model=schemas.ScanAttachmentResponse)
+async def upload_scan_attachment_endpoint(
+    scan_id: int,
+    file: UploadFile = File(...),
+    file_category: Optional[str] = Query("report"),
+    db: Session = Depends(get_db)
+):
+    scan_obj = crud.get_scan_record(db, scan_id)
+    if not scan_obj:
+        raise HTTPException(status_code=404, detail="Scan record not found")
+
+    content = await file.read()
+    if len(content) > 50 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="File size exceeds maximum 50MB limit")
+
+    import re
+    safe_name = re.sub(r'[^a-zA-Z0-9_\.-]', '_', file.filename or "attachment.dat")
+    filename_unique = f"scan_{scan_id}_{int(time.time())}_{safe_name}"
+    file_path = os.path.join("backend", "uploads", "scans", filename_unique)
+
+    with open(file_path, "wb") as f:
+        f.write(content)
+
+    storage_url = f"/uploads/scans/{filename_unique}"
+
+    attachment_data = {
+        "file_name": safe_name,
+        "original_name": file.filename or safe_name,
+        "file_type": file.content_type or "application/octet-stream",
+        "file_size": len(content),
+        "file_category": file_category,
+        "file_path": file_path,
+        "storage_url": storage_url,
+        "uploaded_by": "admin"
+    }
+
+    return crud.add_scan_attachment(db, scan_id=scan_id, attachment_data=attachment_data)
+
+# --- LIST SCAN ATTACHMENTS ---
+@app.get("/api/scans/{scan_id}/attachments", response_model=List[schemas.ScanAttachmentResponse])
+@app.get("/scans/{scan_id}/attachments", response_model=List[schemas.ScanAttachmentResponse])
+def get_scan_attachments_endpoint(scan_id: int, db: Session = Depends(get_db)):
+    scan_obj = crud.get_scan_record(db, scan_id)
+    if not scan_obj:
+        raise HTTPException(status_code=404, detail="Scan record not found")
+    return crud.get_scan_attachments(db, scan_id)
+
+# --- DELETE SCAN ATTACHMENT ---
+@app.delete("/api/scans/{scan_id}/attachments/{attachment_id}")
+@app.delete("/scans/{scan_id}/attachments/{attachment_id}")
+def delete_scan_attachment_endpoint(scan_id: int, attachment_id: int, db: Session = Depends(get_db)):
+    deleted = crud.delete_scan_attachment(db, attachment_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Attachment not found")
+    return {"message": "Attachment deleted successfully"}
+
+# --- GET AUDIT LOGS FOR SCAN ---
+@app.get("/api/scans/{scan_id}/history", response_model=List[schemas.ScanAuditLogResponse])
+@app.get("/scans/{scan_id}/history", response_model=List[schemas.ScanAuditLogResponse])
+def get_scan_history_endpoint(scan_id: int, db: Session = Depends(get_db)):
+    scan_obj = crud.get_scan_record(db, scan_id)
+    if not scan_obj:
+        raise HTTPException(status_code=404, detail="Scan record not found")
+    return crud.get_scan_audit_logs(db, scan_id)
+
+# --- GET PATIENT SCAN ANALYSIS ---
+@app.get("/api/patients/{patient_id}/analysis", response_model=schemas.PatientScanAnalysisResponse)
+@app.get("/patients/{patient_id}/analysis", response_model=schemas.PatientScanAnalysisResponse)
+def get_patient_scan_analysis_endpoint(patient_id: int, db: Session = Depends(get_db)):
+    analysis_data = crud.get_patient_scan_analysis(db, patient_id)
+    if not analysis_data:
+        raise HTTPException(status_code=404, detail="Patient not found")
+    return analysis_data

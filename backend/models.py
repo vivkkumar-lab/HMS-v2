@@ -33,8 +33,11 @@ class Patient(Base):
     lab_bills = relationship("LabBill", back_populates="patient")
     ip_admissions = relationship("IPAdmission", back_populates="patient")
     lab_reports = relationship("LabReport", back_populates="patient")
+    lab_orders = relationship("LabOrder", back_populates="patient")
+    lab_attachments = relationship("LabAttachment", back_populates="patient")
     op_bills = relationship("OPBill", back_populates="patient")
     ip_bills = relationship("IPBill", back_populates="patient")
+    scan_records = relationship("ScanRecord", back_populates="patient")
 
 class OPToken(Base):
     __tablename__ = "op_tokens"
@@ -186,6 +189,9 @@ class LabReport(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     patient_id = Column(Integer, ForeignKey("patients.id"))
+    order_id = Column(Integer, ForeignKey("lab_orders.id"), nullable=True)
+    sample_id = Column(Integer, ForeignKey("lab_samples.id"), nullable=True)
+    report_number = Column(String, index=True, nullable=True)
     test_name = Column(String, nullable=False)
     result_value = Column(String, nullable=True) # made nullable for multi-param
     normal_range = Column(String, nullable=True)
@@ -195,7 +201,22 @@ class LabReport(Base):
     remarks = Column(String, nullable=True)
     results_data = Column(JSON, nullable=True) # for multi-parameter results
 
+    # Enterprise workflow & audit
+    report_status = Column(String, default="Draft") # Draft, Verified, Published, Revised, Cancelled
+    verified_by = Column(String, nullable=True)
+    verification_date = Column(DateTime, nullable=True)
+    is_verified = Column(Boolean, default=False)
+    is_published = Column(Boolean, default=False)
+    published_by = Column(String, nullable=True)
+    published_at = Column(DateTime, nullable=True)
+    version = Column(Integer, default=1)
+    has_critical_values = Column(Boolean, default=False)
+    has_abnormal_values = Column(Boolean, default=False)
+    pathologist_comments = Column(Text, nullable=True)
+
     patient = relationship("Patient", back_populates="lab_reports")
+    versions = relationship("LabReportVersion", back_populates="report")
+    attachments = relationship("LabAttachment", back_populates="report")
 
 # ============================
 # NEW: LAB MANAGEMENT MODELS
@@ -209,45 +230,120 @@ class LabTestMaster(Base):
     category = Column(String, nullable=True)
     department = Column(String, nullable=True)
     sample_type = Column(String, nullable=True)
+    container_type = Column(String, nullable=True)
+    method = Column(String, nullable=True)
     unit = Column(String, nullable=True)
     reference_range = Column(String, nullable=True)
     normal_range_male = Column(String, nullable=True)
     normal_range_female = Column(String, nullable=True)
     normal_range_child = Column(String, nullable=True)
+    normal_low = Column(Float, nullable=True)
+    normal_high = Column(Float, nullable=True)
+    critical_range = Column(String, nullable=True)
+    critical_low = Column(Float, nullable=True)
+    critical_high = Column(Float, nullable=True)
+    result_type = Column(String, default="Numeric") # Numeric, Decimal, Text, Pos/Neg, Dropdown, Multi-Parameter
+    options = Column(JSON, nullable=True)
+    parameters = Column(JSON, default=[]) # Dynamic sub-parameters array
     price = Column(Float, default=0.0)
     tat_hours = Column(Integer, default=24)
     is_active = Column(Boolean, default=True)
+
+    test_parameters = relationship("LabTestParameter", back_populates="test")
+
+class LabTestParameter(Base):
+    __tablename__ = "lab_test_parameters"
+
+    id = Column(Integer, primary_key=True, index=True)
+    test_id = Column(Integer, ForeignKey("lab_test_master.id"))
+    param_code = Column(String, nullable=False)
+    param_name = Column(String, nullable=False)
+    unit = Column(String, nullable=True)
+    result_type = Column(String, default="Numeric")
+    reference_range = Column(String, nullable=True)
+    normal_low = Column(Float, nullable=True)
+    normal_high = Column(Float, nullable=True)
+    critical_low = Column(Float, nullable=True)
+    critical_high = Column(Float, nullable=True)
+    options = Column(JSON, nullable=True)
+    sort_order = Column(Integer, default=0)
+
+    test = relationship("LabTestMaster", back_populates="test_parameters")
 
 class LabOrder(Base):
     __tablename__ = "lab_orders"
 
     id = Column(Integer, primary_key=True, index=True)
+    order_number = Column(String, index=True, nullable=True)
     patient_id = Column(Integer, ForeignKey("patients.id"))
+    encounter_id = Column(Integer, nullable=True)
     doctor_name = Column(String, nullable=True)
     test_id = Column(Integer, ForeignKey("lab_test_master.id"))
     order_date = Column(DateTime, default=datetime.utcnow)
-    status = Column(String, default="Pending") # Pending, Sample Collected, Testing, Completed, Verified
-    priority = Column(String, default="Routine")
+    status = Column(String, default="Pending") # Pending, Sample Collected, Sample Received, Processing, Completed, Verified, Published
+    priority = Column(String, default="Routine") # Routine, Urgent, STAT
+    clinical_indication = Column(Text, nullable=True)
+    diagnosis = Column(Text, nullable=True)
     remarks = Column(Text, nullable=True)
+    created_by = Column(String, nullable=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    patient = relationship("Patient")
+    patient = relationship("Patient", back_populates="lab_orders")
     test = relationship("LabTestMaster")
     samples = relationship("LabSample", back_populates="order")
+    attachments = relationship("LabAttachment", back_populates="order")
 
 class LabSample(Base):
     __tablename__ = "lab_samples"
 
     id = Column(Integer, primary_key=True, index=True)
+    sample_number = Column(String, nullable=True)
     order_id = Column(Integer, ForeignKey("lab_orders.id"))
     sample_type = Column(String, nullable=False)
     collection_date = Column(DateTime, nullable=True)
     collected_by = Column(String, nullable=True)
     container_type = Column(String, nullable=True)
     barcode = Column(String, nullable=True)
+    received_date = Column(DateTime, nullable=True)
+    received_by = Column(String, nullable=True)
+    rejection_reason = Column(Text, nullable=True)
+    condition_notes = Column(Text, nullable=True)
     remarks = Column(Text, nullable=True)
-    status = Column(String, default="Pending") # Collected, Pending, Rejected, Recollected
+    status = Column(String, default="Pending") # Pending, Collected, Received, Processing, Rejected, Recollected
 
     order = relationship("LabOrder", back_populates="samples")
+
+class LabReportVersion(Base):
+    __tablename__ = "lab_report_versions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    report_id = Column(Integer, ForeignKey("lab_reports.id"))
+    version_number = Column(Integer, nullable=False)
+    previous_data = Column(JSON, nullable=True)
+    new_data = Column(JSON, nullable=True)
+    changed_by = Column(String, nullable=True)
+    change_reason = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    report = relationship("LabReport", back_populates="versions")
+
+class LabAttachment(Base):
+    __tablename__ = "lab_attachments"
+
+    id = Column(Integer, primary_key=True, index=True)
+    patient_id = Column(Integer, ForeignKey("patients.id"))
+    order_id = Column(Integer, ForeignKey("lab_orders.id"), nullable=True)
+    report_id = Column(Integer, ForeignKey("lab_reports.id"), nullable=True)
+    file_name = Column(String, nullable=False)
+    file_type = Column(String, nullable=False)
+    file_size = Column(Integer, nullable=False)
+    file_path = Column(String, nullable=False)
+    uploaded_by = Column(String, nullable=True)
+    uploaded_at = Column(DateTime, default=datetime.utcnow)
+
+    patient = relationship("Patient", back_populates="lab_attachments")
+    order = relationship("LabOrder", back_populates="attachments")
+    report = relationship("LabReport", back_populates="attachments")
 
 # ============================
 # NEW: OP Bill (Consolidated)
@@ -342,3 +438,111 @@ class AuditLog(Base):
     timestamp = Column(DateTime, default=datetime.utcnow)
     ip_address = Column(String, nullable=True)
 
+# ============================
+# SCAN / RADIOLOGY MODULE MODELS
+# ============================
+class ScanTypeMaster(Base):
+    __tablename__ = "scan_type_master"
+
+    id = Column(Integer, primary_key=True, index=True)
+    code = Column(String, unique=True, index=True, nullable=False) # XRAY, CT, MRI, USG, ECG, ECHO, MAMMO, PET, DOPPLER, ENDOSCOPY, OTHER
+    name = Column(String, nullable=False)
+    description = Column(Text, nullable=True)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+class ScanRecord(Base):
+    __tablename__ = "scan_records"
+
+    id = Column(Integer, primary_key=True, index=True)
+    scan_number = Column(String, unique=True, index=True, nullable=False)
+    patient_id = Column(Integer, ForeignKey("patients.id"), nullable=False, index=True)
+    scan_type_id = Column(Integer, ForeignKey("scan_type_master.id"), nullable=True)
+    scan_type = Column(String, nullable=False) # e.g. "MRI", "CT Scan"
+    scan_name = Column(String, nullable=False) # e.g. "Brain MRI with Contrast"
+    scan_date = Column(Date, nullable=False)
+    scan_time = Column(String, nullable=True)
+    referred_by_doctor = Column(String, nullable=True)
+    department = Column(String, nullable=True)
+    hospital_location = Column(String, nullable=True)
+    technician_name = Column(String, nullable=True)
+    radiologist_name = Column(String, nullable=True)
+    scan_status = Column(String, default="Draft") # Draft, Completed, Verified, Cancelled
+
+    # Clinical Information
+    clinical_history = Column(Text, nullable=True)
+    chief_complaint = Column(Text, nullable=True)
+    symptoms = Column(Text, nullable=True)
+    provisional_diagnosis = Column(Text, nullable=True)
+    indication_for_scan = Column(Text, nullable=True)
+    relevant_medical_history = Column(Text, nullable=True)
+    previous_scan_reference = Column(String, nullable=True)
+
+    # Report Metadata
+    report_title = Column(String, nullable=True)
+    report_number = Column(String, nullable=True, index=True)
+    report_date = Column(DateTime, nullable=True)
+    reported_by = Column(String, nullable=True)
+    verified_by = Column(String, nullable=True)
+    report_status = Column(String, default="Draft")
+    doctor_comments = Column(Text, nullable=True)
+
+    # Audit & Status
+    created_by = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_by = Column(String, nullable=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    version = Column(Integer, default=1)
+    record_status = Column(String, default="Active")
+
+    patient = relationship("Patient", back_populates="scan_records")
+    findings = relationship("ScanFindings", back_populates="scan_record", uselist=False, cascade="all, delete-orphan")
+    attachments = relationship("ScanAttachment", back_populates="scan_record", cascade="all, delete-orphan")
+    audit_logs = relationship("ScanAuditLog", back_populates="scan_record", cascade="all, delete-orphan")
+
+class ScanFindings(Base):
+    __tablename__ = "scan_findings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    scan_id = Column(Integer, ForeignKey("scan_records.id", ondelete="CASCADE"), nullable=False, index=True)
+    findings = Column(Text, nullable=True)
+    observations = Column(Text, nullable=True)
+    measurements = Column(JSON, default=[]) # [{parameter, value, unit, previous_value, trend}]
+    abnormalities = Column(JSON, default=[]) # [string]
+    organ_specific_findings = Column(JSON, default={}) # {organ_name: text}
+    impression = Column(Text, nullable=True)
+    diagnosis = Column(Text, nullable=True)
+    recommendations = Column(JSON, default=[]) # [string]
+    follow_up_required = Column(Boolean, default=False)
+    follow_up_date = Column(Date, nullable=True)
+
+    scan_record = relationship("ScanRecord", back_populates="findings")
+
+class ScanAttachment(Base):
+    __tablename__ = "scan_attachments"
+
+    id = Column(Integer, primary_key=True, index=True)
+    scan_id = Column(Integer, ForeignKey("scan_records.id", ondelete="CASCADE"), nullable=False, index=True)
+    file_name = Column(String, nullable=False)
+    original_name = Column(String, nullable=False)
+    file_type = Column(String, nullable=False)
+    file_size = Column(Integer, nullable=False)
+    file_category = Column(String, default="report") # original_scan, report_pdf, image, other
+    file_path = Column(String, nullable=False)
+    storage_url = Column(String, nullable=False)
+    uploaded_by = Column(String, nullable=True)
+    uploaded_at = Column(DateTime, default=datetime.utcnow)
+
+    scan_record = relationship("ScanRecord", back_populates="attachments")
+
+class ScanAuditLog(Base):
+    __tablename__ = "scan_audit_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    scan_id = Column(Integer, ForeignKey("scan_records.id", ondelete="CASCADE"), nullable=False, index=True)
+    action = Column(String, nullable=False) # CREATED, UPDATED, STATUS_CHANGE, ATTACHMENT_ADDED, VERIFIED
+    changed_by = Column(String, nullable=False)
+    changes = Column(JSON, default={})
+    timestamp = Column(DateTime, default=datetime.utcnow)
+
+    scan_record = relationship("ScanRecord", back_populates="audit_logs")
