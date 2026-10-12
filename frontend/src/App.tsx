@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
-import { 
+import {
   Users, UserPlus, FileText, Clipboard, Search, CheckCircle, Clock, Calendar, Activity, Pill, PlusCircle, ShoppingCart, TestTube, LogOut, FileDigit, Bed, Home, Stethoscope, BriefcaseMedical, FlaskConical, Database, UserRound, ArrowRightCircle,
   ShoppingBag, Printer, AlertTriangle, DollarSign, BarChart2, Download,
   Building2, Receipt, Settings, Shield,
@@ -8,6 +8,8 @@ import {
   Sun, Moon, Loader2, CheckCircle2, List, Eye, Edit, Trash2, X, Plus, ChevronDown
 } from 'lucide-react';
 import Select from 'react-select';
+import ScanModule from './ScanModule';
+import LabModule from './LabModule';
 
 const selectStyles = {
   control: (base: any, state: any) => ({
@@ -254,6 +256,101 @@ interface User {
   created_at: string;
 }
 
+// ===========================================
+// SCAN & RADIOLOGY MODULE INTERFACES
+// ===========================================
+interface ScanAttachment {
+  id: number;
+  scan_id: number;
+  file_name: string;
+  original_name: string;
+  file_type: string;
+  file_size: number;
+  file_category: string;
+  file_path: string;
+  storage_url: string;
+  uploaded_by?: string;
+  uploaded_at: string;
+}
+
+interface ScanFindings {
+  id?: number;
+  scan_id?: number;
+  findings?: string;
+  observations?: string;
+  measurements?: { parameter: string; value: string; unit?: string; previous_value?: string; trend?: string }[];
+  abnormalities?: string[];
+  organ_specific_findings?: Record<string, string>;
+  impression?: string;
+  diagnosis?: string;
+  recommendations?: string[];
+  follow_up_required?: boolean;
+  follow_up_date?: string;
+}
+
+interface ScanRecord {
+  id: number;
+  scan_number: string;
+  patient_id: number;
+  scan_type_id?: number;
+  scan_type: string;
+  scan_name: string;
+  scan_date: string;
+  scan_time?: string;
+  referred_by_doctor?: string;
+  department?: string;
+  hospital_location?: string;
+  technician_name?: string;
+  radiologist_name?: string;
+  scan_status: string;
+
+  clinical_history?: string;
+  chief_complaint?: string;
+  symptoms?: string;
+  provisional_diagnosis?: string;
+  indication_for_scan?: string;
+  relevant_medical_history?: string;
+  previous_scan_reference?: string;
+
+  report_title?: string;
+  report_number?: string;
+  report_date?: string;
+  reported_by?: string;
+  verified_by?: string;
+  report_status?: string;
+  doctor_comments?: string;
+
+  created_by?: string;
+  created_at: string;
+  updated_by?: string;
+  updated_at: string;
+  version: number;
+  record_status: string;
+
+  patient?: Patient;
+  findings?: ScanFindings;
+  attachments?: ScanAttachment[];
+}
+
+interface ScanTypeMaster {
+  id: number;
+  code: string;
+  name: string;
+  description?: string;
+  is_active: boolean;
+  created_at: string;
+}
+
+interface PatientScanAnalysis {
+  patient: Patient;
+  total_scans: number;
+  scan_types_summary: Record<string, number>;
+  scan_history: ScanRecord[];
+  chronological_progression: any[];
+  measurement_trends: any[];
+  medical_timeline: any[];
+}
+
 const SearchableDropdown = ({ options, value, onChange, placeholder, renderOption, searchKeys = ['label'] }: any) => {
   const [isOpen, setIsOpen] = useState(false);
   const [search, setSearch] = useState('');
@@ -267,7 +364,7 @@ const SearchableDropdown = ({ options, value, onChange, placeholder, renderOptio
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const filteredOptions = options.filter((opt: any) => 
+  const filteredOptions = options.filter((opt: any) =>
     searchKeys.some((key: string) => opt[key]?.toString().toLowerCase().includes(search.toLowerCase()))
   );
 
@@ -275,7 +372,7 @@ const SearchableDropdown = ({ options, value, onChange, placeholder, renderOptio
 
   return (
     <div ref={wrapperRef} style={{ position: 'relative', width: '100%' }}>
-      <div 
+      <div
         onClick={() => setIsOpen(!isOpen)}
         style={{ padding: '8px', border: '1px solid #cbd5e1', borderRadius: '4px', background: 'white', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
       >
@@ -285,10 +382,10 @@ const SearchableDropdown = ({ options, value, onChange, placeholder, renderOptio
       {isOpen && (
         <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'white', border: '1px solid #cbd5e1', borderRadius: '4px', zIndex: 100, maxHeight: '300px', overflowY: 'auto', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}>
           <div style={{ padding: '8px', position: 'sticky', top: 0, background: 'white', borderBottom: '1px solid #e2e8f0' }}>
-            <input 
-              type="text" 
-              placeholder="Type to search..." 
-              value={search} 
+            <input
+              type="text"
+              placeholder="Type to search..."
+              value={search}
               onChange={e => setSearch(e.target.value)}
               style={{ width: '100%', padding: '6px', border: '1px solid #cbd5e1', borderRadius: '4px' }}
               autoFocus
@@ -296,7 +393,7 @@ const SearchableDropdown = ({ options, value, onChange, placeholder, renderOptio
           </div>
           {filteredOptions.length > 0 ? (
             filteredOptions.map((opt: any, index: number) => (
-              <div 
+              <div
                 key={index}
                 onClick={() => { onChange(opt.value); setIsOpen(false); setSearch(''); }}
                 style={{ padding: '8px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9' }}
@@ -327,17 +424,17 @@ const LabPatientHeader = ({ patients, selectedId, onChange, labOrders, ipAdmissi
   }));
 
   const selectedPatient = patients.find((p: any) => p.id === selectedId);
-  
+
   // Try to find recent order to get Doctor/Dept
   const recentOrder = labOrders.filter((o: any) => o.patient_id === selectedId).sort((a: any, b: any) => b.id - a.id)[0];
   const isIP = ipAdmissions.some((a: any) => a.patient_id === selectedId && a.status === 'Admitted');
-  
+
   return (
     <div className="glass-card" style={{ marginBottom: '20px', padding: '15px' }}>
       <div style={{ display: 'grid', gridTemplateColumns: '300px 1fr', gap: '20px', alignItems: 'start' }}>
         <div>
           <label style={{ fontWeight: 'bold', marginBottom: '8px', display: 'block' }}>Search & Select Patient</label>
-          <SearchableDropdown 
+          <SearchableDropdown
             options={patientOptions}
             value={selectedId}
             onChange={onChange}
@@ -380,8 +477,8 @@ export default function App() {
     const reqInterceptor = axios.interceptors.request.use(config => { setGlobalLoading(true); return config; });
     const resInterceptor = axios.interceptors.response.use(
       response => { setGlobalLoading(false); return response; },
-      error => { 
-        setGlobalLoading(false); 
+      error => {
+        setGlobalLoading(false);
         let errorMsg = 'An error occurred';
         if (error.response?.data?.detail) {
           const detail = error.response.data.detail;
@@ -391,8 +488,8 @@ export default function App() {
             errorMsg = detail;
           }
         }
-        showToast(errorMsg, 'error'); 
-        return Promise.reject(error); 
+        showToast(errorMsg, 'error');
+        return Promise.reject(error);
       }
     );
     return () => {
@@ -402,7 +499,7 @@ export default function App() {
   }, []);
 
   const [token, setToken] = useState<string | null>(localStorage.getItem('token'));
-  
+
   const exportToCSV = (data: any[], filename: string) => {
     if(!data.length) return;
     const headers = Object.keys(data[0]).join(',');
@@ -421,7 +518,7 @@ export default function App() {
   const [inventorySearch, setInventorySearch] = useState("");
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [loginForm, setLoginForm] = useState({ username: '', password: '' });
-  
+
   const [activeTab, setActiveTab] = useState('dashboard');
   const [patients, setPatients] = useState<Patient[]>([]);
   const [tokens, setTokens] = useState<OPToken[]>([]);
@@ -436,6 +533,67 @@ export default function App() {
   // New state for billing & reports
   const [opBills, setOpBills] = useState<OPBill[]>([]);
   const [ipBills, setIpBills] = useState<IPBill[]>([]);
+
+  // Scan Module States
+  const [scanRecords, setScanRecords] = useState<ScanRecord[]>([]);
+  const [scanTypesMaster, setScanTypesMaster] = useState<ScanTypeMaster[]>([]);
+  const [scanSubTab, setScanSubTab] = useState<'list' | 'entry' | 'analysis' | 'comparison' | 'master'>('list');
+  const [selectedScanRecord, setSelectedScanRecord] = useState<ScanRecord | null>(null);
+  const [selectedViewScan, setSelectedViewScan] = useState<ScanRecord | null>(null);
+  const [scanFilterType, setScanFilterType] = useState('All');
+  const [scanFilterStatus, setScanFilterStatus] = useState('All');
+  const [scanFilterDoctor, setScanFilterDoctor] = useState('');
+  const [scanSearchQuery, setScanSearchQuery] = useState('');
+  const [scanAnalysisData, setScanAnalysisData] = useState<PatientScanAnalysis | null>(null);
+  const [scanAnalysisPatientId, setScanAnalysisPatientId] = useState<number | null>(null);
+  const [comparisonScanA, setComparisonScanA] = useState<ScanRecord | null>(null);
+  const [comparisonScanB, setComparisonScanB] = useState<ScanRecord | null>(null);
+  const [scanFormMode, setScanFormMode] = useState<'create' | 'edit'>('create');
+  const [scanUploadingFiles, setScanUploadingFiles] = useState<boolean>(false);
+  const [newMasterScanTypeForm, setNewMasterScanTypeForm] = useState({ code: '', name: '', description: '' });
+
+  const [scanForm, setScanForm] = useState({
+    id: 0,
+    patient_id: '' as number | '',
+    scan_type: 'MRI',
+    scan_name: '',
+    scan_date: new Date().toISOString().split('T')[0],
+    scan_time: '10:00 AM',
+    referred_by_doctor: '',
+    department: 'Radiology',
+    hospital_location: 'Main Block - Radiology Wing',
+    technician_name: '',
+    radiologist_name: '',
+    scan_status: 'Completed',
+
+    clinical_history: '',
+    chief_complaint: '',
+    symptoms: '',
+    provisional_diagnosis: '',
+    indication_for_scan: '',
+    relevant_medical_history: '',
+    previous_scan_reference: '',
+
+    report_title: '',
+    report_number: '',
+    report_date: new Date().toISOString().split('T')[0],
+    reported_by: '',
+    verified_by: '',
+    report_status: 'Completed',
+    doctor_comments: '',
+
+    findings: '',
+    observations: '',
+    impression: '',
+    diagnosis: '',
+    follow_up_required: false,
+    follow_up_date: '',
+
+    measurements: [{ parameter: 'Lesion / Organ Size', value: '', unit: 'mm', previous_value: '', trend: 'Unchanged' }],
+    abnormalities: [''],
+    recommendations: ['Follow-up in 6 months'],
+    organ_specific_findings: { Brain: '', Spine: '', Lung: '', Abdomen: '', Heart: '' } as Record<string, string>
+  });
   // Search state
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<SearchResultItem[]>([]);
@@ -506,7 +664,7 @@ export default function App() {
   // Doctor Module Global States
   const [selectedDoctorPatientId, setSelectedDoctorPatientId] = useState<number | null>(null);
   const [doctorLabOrders, setDoctorLabOrders] = useState<any[]>([]); // To hold transient multiple lab orders selected by doctor
-  
+
   // Lab Direct Orders States
 
   const [isLabRegistrationModalOpen, setIsLabRegistrationModalOpen] = useState(false);
@@ -535,7 +693,7 @@ export default function App() {
       }
       return config;
     });
-    
+
     const resInterceptor = axios.interceptors.response.use(
       response => response,
       async error => {
@@ -599,7 +757,7 @@ export default function App() {
     localStorage.removeItem('refresh_token');
     axios.defaults.headers.common['Authorization'] = '';
   };
-  
+
   // IP Admission Form
   const [selectedWardTab, setSelectedWardTab] = useState('GW'); // Default to General Ward prefix
   const [ipAdmissionForm, setIpAdmissionForm] = useState({
@@ -610,7 +768,7 @@ export default function App() {
   const [labReportForm, setLabReportForm] = useState({
     patient_id: '', test_name: '', result_value: '', normal_range: '', units: '', reported_by: '', remarks: ''
   });
-  
+
   // New Lab Forms
   const [labTestMasterForm, setLabTestMasterForm] = useState({
     test_code: '', test_name: '', category: 'Pathology', department: '', sample_type: 'Blood', unit: '', reference_range: '', normal_range_male: '', normal_range_female: '', normal_range_child: '', price: 0, tat_hours: 24, is_active: true
@@ -620,7 +778,7 @@ export default function App() {
     patient_id: '', doctor_name: '', test_id: ''
   });
   const [labResultParams, setLabResultParams] = useState<{ [key: string]: { value: string, flag: string, remarks: string } }>({});
-  
+
   // Forms & Selections
   const [selectedPatientId, setSelectedPatientId] = useState<number | ''>('');
   const [opSession, setOpSession] = useState<'Morning' | 'Evening'>('Morning');
@@ -632,7 +790,7 @@ export default function App() {
   const [appointmentForm, setAppointmentForm] = useState({
     patient_id: '', doctor_id: '', appointment_date: new Date().toISOString().split('T')[0], time_slot: '10:00 AM', reason: ''
   });
-  
+
   // Registration Form
   const [patientForm, setPatientForm] = useState({
     name: '', age: 0, gender: 'Male', phone: '', address: '', aadhaar: '', blood_group: '',
@@ -647,7 +805,7 @@ export default function App() {
     clinicalFindings: '', diagnosis: '', icdCode: '', treatmentPlan: '', advice: '', followUpDate: ''
   });
   const [casesheetMeds, setCasesheetMeds] = useState<any[]>([]);
-  const [newMed, setNewMed] = useState({ 
+  const [newMed, setNewMed] = useState({
     medicine_id: 0, quantity: 1, duration: '', instructions: '',
     timing_morning: false, timing_afternoon: false, timing_night: false, timing_relation: 'After Food'
   });
@@ -676,7 +834,7 @@ export default function App() {
 
   // Inventory Stock In (GRN)
   const [grnForm, setGrnForm] = useState({
-    medicine_id: '', quantity: 1, type: 'Stock In', notes: '', 
+    medicine_id: '', quantity: 1, type: 'Stock In', notes: '',
     details: { supplierName: '', invoiceNumber: '', purchaseOrder: '' }
   });
 
@@ -756,6 +914,24 @@ export default function App() {
     }
   };
 
+  const loadScanRecords = async () => {
+    try {
+      const res = await axios.get(`${API_BASE}/scans/`);
+      setScanRecords(res.data);
+    } catch (err) {
+      console.error("Failed to fetch scans", err);
+    }
+  };
+
+  const loadScanTypesMaster = async () => {
+    try {
+      const res = await axios.get(`${API_BASE}/scan-types/`);
+      setScanTypesMaster(res.data);
+    } catch (err) {
+      console.error("Failed to fetch scan types", err);
+    }
+  };
+
   // Load Data
   const loadAllData = async () => {
     const fetchSafe = async (url: string, setter: (data: any) => void) => {
@@ -780,6 +956,8 @@ export default function App() {
       fetchSafe(`${API_BASE}/billing/op/`, setOpBills),
       fetchSafe(`${API_BASE}/billing/ip/`, setIpBills),
       fetchSafe(`${API_BASE}/appointments/`, setAppointments),
+      fetchSafe(`${API_BASE}/scans/`, setScanRecords),
+      fetchSafe(`${API_BASE}/scan-types/`, setScanTypesMaster),
       loadUsers()
     ]);
   };
@@ -1142,7 +1320,7 @@ export default function App() {
     const table = document.getElementById(tableId);
     if (!table) return;
     const rows = Array.from(table.querySelectorAll('tr'));
-    const csvContent = rows.map(row => 
+    const csvContent = rows.map(row =>
       Array.from(row.querySelectorAll('th, td')).map(cell => `"${cell.textContent}"`).join(',')
     ).join('\n');
     const blob = new Blob([csvContent], { type: 'text/csv' });
@@ -1251,9 +1429,9 @@ export default function App() {
       setLabTestMasterForm({ test_code: '', test_name: '', category: 'Pathology', department: '', sample_type: 'Blood', unit: '', reference_range: '', normal_range_male: '', normal_range_female: '', normal_range_child: '', price: 0, tat_hours: 24, is_active: true });
       setSelectedTestMasterId(null);
       loadAllData();
-    } catch (err: any) { 
-      console.error(err); 
-      alert(err.response?.data?.detail || "Failed to save Test Master"); 
+    } catch (err: any) {
+      console.error(err);
+      alert(err.response?.data?.detail || "Failed to save Test Master");
     }
   };
 
@@ -1325,11 +1503,11 @@ export default function App() {
         remarks: collectSampleForm.remarks,
         status: 'Collected'
       });
-      
+
       await axios.put(`${API_BASE}/lab-orders/${selectedCollectSampleOrder.id}`, {
         status: 'Sample Collected'
       });
-      
+
       alert("Sample collected successfully!");
       setSelectedCollectSampleOrder(null);
       loadAllData();
@@ -1349,7 +1527,7 @@ export default function App() {
           reported_by: currentUser?.username,
           results_data: resultEntryForm
         });
-        
+
         // Update Order status
         await axios.put(`${API_BASE}/lab-orders/${selectedResultEntryOrder.id}`, {
           status: 'Verified',
@@ -1364,7 +1542,7 @@ export default function App() {
         });
         alert("Result Draft Saved!");
       }
-      
+
       setSelectedResultEntryOrder(null);
       loadAllData();
     } catch (err) { console.error(err); alert("Failed to save result"); }
@@ -1433,7 +1611,7 @@ export default function App() {
       setNewMed({ medicine_id: 0, quantity: 1, duration: '', instructions: '', timing_morning: false, timing_afternoon: false, timing_night: false, timing_relation: 'After Food' });
     }
   };
-  
+
   // Auto-calculate quantity effect
   useEffect(() => {
     const timesPerDay = (newMed.timing_morning ? 1 : 0) + (newMed.timing_afternoon ? 1 : 0) + (newMed.timing_night ? 1 : 0);
@@ -1456,7 +1634,7 @@ export default function App() {
 
   const handleSaveCasesheet = async (isFinal: boolean) => {
     if (!selectedOPToken && isFinal) return alert("Please select an active consultation");
-    
+
     // If Draft, just save locally in state (could persist to localStorage)
     if (!isFinal) {
       alert("Draft saved locally for this session.");
@@ -1513,7 +1691,7 @@ Follow-up: ${casesheetForm.followUpDate}`.trim();
   const handleOrderDoctorLabs = async () => {
     if (!selectedDoctorPatientId) return alert("Please select a patient first.");
     if (casesheetLabs.length === 0) return alert("Please select at least one lab test to order.");
-    
+
     try {
       for (const testName of casesheetLabs) {
         const test = labTestMasters.find(t => t.test_name === testName);
@@ -1559,7 +1737,7 @@ Follow-up: ${casesheetForm.followUpDate}`.trim();
       const res = await axios.get(`${API_BASE}/patients/${patId}/casesheets/`);
       const casesheets = res.data;
       if (!casesheets || casesheets.length === 0) return alert("No casesheets found for this patient.");
-      
+
       const latest = casesheets[0];
       if (!latest.prescribed_medicines || latest.prescribed_medicines.length === 0) {
         return alert("No medicines prescribed in the latest casesheet.");
@@ -1619,7 +1797,7 @@ Follow-up: ${casesheetForm.followUpDate}`.trim();
   const addToCart = (overrideItem?: any, stockRef?: any) => {
     const isEvent = overrideItem && overrideItem.nativeEvent;
     const itemToAdd = (!overrideItem || isEvent) ? billingNewItem : overrideItem;
-    
+
     if (!itemToAdd.medicine_id || itemToAdd.quantity <= 0) return alert("Select medicine and quantity");
     const stockItem = stockRef || inventory.find(i => i.id === itemToAdd.medicine_id);
     if (!stockItem) return;
@@ -1738,7 +1916,7 @@ Follow-up: ${casesheetForm.followUpDate}`.trim();
       const formData = new URLSearchParams();
       formData.append('username', loginForm.username);
       formData.append('password', loginForm.password);
-      
+
       const res = await axios.post(`${API_BASE}/login`, formData, {
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
       });
@@ -1774,8 +1952,8 @@ Follow-up: ${casesheetForm.followUpDate}`.trim();
           <form className="login-form" onSubmit={handleLogin}>
             <div className="form-group">
               <label>Username</label>
-              <input 
-                type="text" 
+              <input
+                type="text"
                 className="input-field"
                 value={loginForm.username}
                 onChange={e => setLoginForm({...loginForm, username: e.target.value})}
@@ -1784,8 +1962,8 @@ Follow-up: ${casesheetForm.followUpDate}`.trim();
             </div>
             <div className="form-group">
               <label>Password</label>
-              <input 
-                type="password" 
+              <input
+                type="password"
                 className="input-field"
                 value={loginForm.password}
                 onChange={e => setLoginForm({...loginForm, password: e.target.value})}
@@ -1817,20 +1995,21 @@ Follow-up: ${casesheetForm.followUpDate}`.trim();
               <div className={`nav-item ${activeTab === 'dashboard' ? 'active' : ''}`} onClick={() => setActiveTab('dashboard')}><Activity size={20} /> Dashboard</div>
               {currentUser.role === 'Admin' && <div className={`nav-item ${activeTab === 'users' ? 'active' : ''}`} onClick={() => { setActiveTab('users'); loadUsers(); }}><Users size={20} /> User Management</div>}
               <div className={`nav-item ${activeTab === 'search' ? 'active' : ''}`} onClick={() => setActiveTab('search')}><Search size={20} /> Global Search</div>
-              
+
               <div className="nav-section-title" style={{fontSize:'10px', color:'#94a3b8', padding:'10px 20px', letterSpacing:'1px', marginTop:'10px'}}>HOSPITAL MODULES</div>
               <div className={`nav-item ${activeTab === 'patients' ? 'active' : ''}`} onClick={() => setActiveTab('patients')}><Users size={20} /> Registration & Tokens</div>
               <div className={`nav-item ${activeTab === 'casesheet' ? 'active' : ''}`} onClick={() => setActiveTab('casesheet')}><Clipboard size={20} /> OP Casesheet</div>
               <div className={`nav-item ${activeTab === 'casesheet' ? 'active' : ''}`} onClick={() => setActiveTab('casesheet')}><FileText size={20} /> Write Prescription</div>
               <div className={`nav-item ${activeTab === 'ip_admissions' ? 'active' : ''}`} onClick={() => setActiveTab('ip_admissions')}><Clipboard size={20} /> IP Admissions</div>
-              
+
               <div className="nav-section-title" style={{fontSize:'10px', color:'#94a3b8', padding:'10px 20px', letterSpacing:'1px', marginTop:'10px'}}>BILLING</div>
               <div className={`nav-item ${activeTab === 'billing' ? 'active' : ''}`} onClick={() => { setActiveTab('billing'); setBillingTab('op'); }}><Receipt size={20} /> Billing Module</div>
               <div className={`nav-item ${activeTab === 'pharmacy' ? 'active' : ''}`} onClick={() => setActiveTab('pharmacy')}><ShoppingBag size={20} /> Pharmacy</div>
-              
+
               <div className="nav-section-title" style={{fontSize:'10px', color:'#94a3b8', padding:'10px 20px', letterSpacing:'1px', marginTop:'10px'}}>OTHER</div>
               <div className={`nav-item ${activeTab === 'inventory' ? 'active' : ''}`} onClick={() => setActiveTab('inventory')}><Database size={20} /> Inventory</div>
               <div className={`nav-item ${activeTab === 'lab_reports' ? 'active' : ''}`} onClick={() => setActiveTab('lab_reports')}><FlaskConical size={20} /> Lab Reports</div>
+              <div className={`nav-item ${activeTab === 'scans' ? 'active' : ''}`} onClick={() => { setActiveTab('scans'); loadScanRecords(); loadScanTypesMaster(); }}><FileDigit size={20} /> Scans & Radiology</div>
               <div className={`nav-item ${activeTab === 'reports' ? 'active' : ''}`} onClick={() => { setActiveTab('reports'); loadDailyReport(); loadRevenueReport(); }}><BarChart2 size={20} /> Reports</div>
               {currentUser.role === 'Admin' && <div className={`nav-item ${activeTab === 'admin_settings' ? 'active' : ''}`} onClick={() => { setActiveTab('admin_settings'); loadHospitalSettings(); loadAuditLogs(); }}><Settings size={20} /> Admin Settings</div>}
             </>
@@ -1873,7 +2052,7 @@ Follow-up: ${casesheetForm.followUpDate}`.trim();
             </div>
           )}
         </nav>
-        
+
         <div className="sidebar-footer">
           <div className="user-profile">
             <div className="user-avatar">{currentUser.username.charAt(0).toUpperCase()}</div>
@@ -2052,7 +2231,7 @@ Follow-up: ${casesheetForm.followUpDate}`.trim();
                       <div className="stat-val">{ipAdmissions.filter(a => a.status === 'Admitted').length}</div>
                     </div>
                   </div>
-                  
+
                   <div className="glass-card stat-card" style={{borderLeft:'4px solid #ef4444'}}>
                     <div className="stat-icon" style={{backgroundColor:'rgba(239,68,68,0.15)',color:'#ef4444'}}><AlertTriangle size={24}/></div>
                     <div>
@@ -2101,7 +2280,7 @@ Follow-up: ${casesheetForm.followUpDate}`.trim();
                   <div className="glass-card">
                     <h3 style={{marginBottom:'16px',display:'flex',alignItems:'center',gap:'8px'}}><FileText color="#8b5cf6" size={20}/> Recent Prescriptions</h3>
                     <div style={{color:'var(--text-muted)', fontSize:'14px', fontStyle:'italic'}}>
-                      Prescriptions are generated directly via the OP Casesheet module. 
+                      Prescriptions are generated directly via the OP Casesheet module.
                     </div>
                   </div>
                 </div>
@@ -2473,7 +2652,7 @@ Follow-up: ${casesheetForm.followUpDate}`.trim();
               <div className="form-grid">
                 <div className="glass-card" style={{ gridColumn: 'span 2' }}>
                   <h3 style={{ marginBottom: '16px' }}>Search & Select Patient</h3>
-                  <SearchableDropdown 
+                  <SearchableDropdown
                     options={patients.map((p: any) => ({
                       label: `${p.id} - ${p.name} - ${p.phone}`,
                       value: p.id,
@@ -2554,7 +2733,7 @@ Follow-up: ${casesheetForm.followUpDate}`.trim();
                   {/* Comprehensive Patient Context View */}
                   <div className="glass-card" style={{ marginBottom: '24px', background: 'rgba(59, 130, 246, 0.05)', border: '1px solid rgba(59, 130, 246, 0.2)' }}>
                     <h3 style={{ marginBottom: '16px', color: '#3b82f6', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <UserRound size={20}/> {patient.name} 
+                      <UserRound size={20}/> {patient.name}
                     </h3>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: '15px' }}>
                       <div><small style={{color:'var(--text-muted)'}}>Patient ID</small><br/><strong>{patient.id}</strong></div>
@@ -2568,7 +2747,7 @@ Follow-up: ${casesheetForm.followUpDate}`.trim();
 
                   {/* Main Interaction Area: split into History and Active Consultation */}
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '24px' }}>
-                    
+
                     {/* LEFT COLUMN: History */}
                     <div>
                       <div className="glass-card" style={{ marginBottom: '20px' }}>
@@ -2667,7 +2846,7 @@ Follow-up: ${casesheetForm.followUpDate}`.trim();
                             <div className="form-grid" style={{ alignItems: 'flex-end', background: 'var(--surface)', padding: '16px', borderRadius: '8px', border:'1px solid var(--border)' }}>
                               <div className="form-group" style={{ gridColumn: 'span 2' }}>
                                 <label>Select Medicine</label>
-                                <Select 
+                                <Select
                                   styles={selectStyles}
                                   options={inventory.filter(i => i.category === 'Pharmacy').map(item => ({ value: item.id, label: `${item.name} (Stock: ${item.quantity})` }))}
                                   value={newMed.medicine_id ? { value: newMed.medicine_id, label: inventory.find(i=>i.id === newMed.medicine_id)?.name || '' } : null}
@@ -2675,7 +2854,7 @@ Follow-up: ${casesheetForm.followUpDate}`.trim();
                                   placeholder="-- Select Medicine --"
                                 />
                               </div>
-                              
+
                               <div className="form-group" style={{ gridColumn: 'span 2', display: 'flex', gap: '12px', alignItems: 'flex-end' }}>
                                 <label style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
                                   <span style={{fontSize:'12px', color:'var(--text-muted)'}}>Morning</span>
@@ -2767,7 +2946,7 @@ Follow-up: ${casesheetForm.followUpDate}`.trim();
             </div>
 
             <div className="form-grid">
-              
+
               {/* Checkout details & Patient Selection */}
               <div className="glass-card" style={{ gridColumn: 'span 2' }}>
                 <h3 style={{ marginBottom: '16px' }}>1. Patient & Prescription Details</h3>
@@ -2809,7 +2988,7 @@ Follow-up: ${casesheetForm.followUpDate}`.trim();
               <div className="glass-card" style={{ gridColumn: 'span 2' }}>
                 <h3 style={{ marginBottom: '16px' }}>2. Add Medicines to Bill</h3>
                 <div className="form-grid" style={{ alignItems: 'flex-end' }}>
-                  
+
                   {/* Barcode Scanner */}
                   <div className="form-group">
                      <label style={{color: '#8b5cf6'}}>Scan Barcode</label>
@@ -2818,10 +2997,10 @@ Follow-up: ${casesheetForm.followUpDate}`.trim();
 
                   <div className="form-group" style={{ gridColumn: 'span 2' }}>
                     <label>Or Select Medicine Manually</label>
-                    <Select 
+                    <Select
                       styles={selectStyles}
-                      options={(inventory.filter(i => !i.category || i.category.toLowerCase() === 'pharmacy').length > 0 
-                        ? inventory.filter(i => !i.category || i.category.toLowerCase() === 'pharmacy') 
+                      options={(inventory.filter(i => !i.category || i.category.toLowerCase() === 'pharmacy').length > 0
+                        ? inventory.filter(i => !i.category || i.category.toLowerCase() === 'pharmacy')
                         : inventory).map(item => ({ value: String(item.id), label: `${item.name} (Stock Available: ${item.quantity} | Price: ₹${item.unit_price})` }))}
                       value={billingNewItem.medicine_id ? { value: String(billingNewItem.medicine_id), label: (() => { const i = inventory.find(x => x.id === billingNewItem.medicine_id); return i ? `${i.name} (Stock Available: ${i.quantity} | Price: ₹${i.unit_price})` : ''; })() } : null}
                       onChange={(sel: any) => setBillingNewItem({ ...billingNewItem, medicine_id: sel ? Number(sel.value) : 0 })}
@@ -2973,7 +3152,7 @@ Follow-up: ${casesheetForm.followUpDate}`.trim();
                 <h3 style={{ marginBottom: '16px' }}>Medicine Master (Add New Stock)</h3>
                 <form onSubmit={handleSaveInventoryItem}>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                    
+
                     {/* Basic Info */}
                     <div style={{ padding: '16px', background: 'rgba(255,255,255,0.02)', borderRadius: '8px', border: '1px solid var(--border)' }}>
                       <h4 style={{ marginBottom: '12px', color: '#3b82f6' }}>Basic Details</h4>
@@ -3209,7 +3388,7 @@ Follow-up: ${casesheetForm.followUpDate}`.trim();
                 <form onSubmit={handleAdmitPatient}>
                   <div className="form-group">
                     <label>Select Patient</label>
-                    <Select 
+                    <Select
                       styles={selectStyles}
                       options={patients.map(p => ({ value: String(p.id), label: `${p.name} (ID: ${p.id})` }))}
                       value={ipAdmissionForm.patient_id ? { value: String(ipAdmissionForm.patient_id), label: patients.find(p => String(p.id) === String(ipAdmissionForm.patient_id))?.name + ' (ID: ' + ipAdmissionForm.patient_id + ')' } : null}
@@ -3222,8 +3401,8 @@ Follow-up: ${casesheetForm.followUpDate}`.trim();
                     <label>Select Ward & Bed</label>
                     <div className="ward-tabs">
                       {HOSPITAL_LAYOUT.map(layout => (
-                        <div 
-                          key={layout.prefix} 
+                        <div
+                          key={layout.prefix}
                           className={`ward-tab ${selectedWardTab === layout.prefix ? 'active' : ''}`}
                           onClick={() => {
                             setSelectedWardTab(layout.prefix);
@@ -3234,7 +3413,7 @@ Follow-up: ${casesheetForm.followUpDate}`.trim();
                         </div>
                       ))}
                     </div>
-                    
+
                     <div className="bus-layout-wrapper">
                       <div className="nurse-station-front">
                         <span>⚕️ Nurse Station</span>
@@ -3244,16 +3423,16 @@ Follow-up: ${casesheetForm.followUpDate}`.trim();
                           const leftBedIndex = rowIndex * 2;
                           const rightBedIndex = rowIndex * 2 + 1;
                           const totalBeds = HOSPITAL_LAYOUT.find(l => l.prefix === selectedWardTab)?.beds || 0;
-                          
+
                           const renderBed = (bedIndex: number) => {
                             if (bedIndex >= totalBeds) return <div className="bus-bed-item-empty"></div>;
                             const bedId = `${selectedWardTab}-${bedIndex + 1}`;
                             const isOccupied = ipAdmissions.some(a => a.room_number === bedId && a.status === 'Admitted');
                             const isSelected = ipAdmissionForm.room_number === bedId;
-                            
+
                             return (
-                              <div 
-                                key={bedId} 
+                              <div
+                                key={bedId}
                                 className={`bus-bed-item ${isOccupied ? 'occupied' : isSelected ? 'selected' : 'available'}`}
                                 onClick={() => {
                                   if (!isOccupied) {
@@ -3357,617 +3536,23 @@ Follow-up: ${casesheetForm.followUpDate}`.trim();
           </div>
         )}
 
-        {activeTab === 'lab_dashboard' && (
-          <div className="no-print">
-            <div className="header">
-              <div className="header-title">
-                <h1>Laboratory Dashboard</h1>
-                <p>Overview of lab operations and pending tests.</p>
-              </div>
-            </div>
-            <div className="dashboard-grid">
-              <div className="stat-card">
-                <div className="stat-icon" style={{background: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6'}}><Activity size={24}/></div>
-                <div className="stat-details">
-                  <h3>Pending Tests</h3>
-                  <h2>{labOrders.filter(o => o.status === 'Pending' || o.status === 'Sample Collected').length}</h2>
-                </div>
-              </div>
-              <div className="stat-card">
-                <div className="stat-icon" style={{background: 'rgba(16, 185, 129, 0.1)', color: '#10b981'}}><CheckCircle2 size={24}/></div>
-                <div className="stat-details">
-                  <h3>Completed Today</h3>
-                  <h2>{labOrders.filter(o => o.status === 'Verified' && new Date(o.order_date).toDateString() === new Date().toDateString()).length}</h2>
-                </div>
-              </div>
-              <div className="stat-card">
-                <div className="stat-icon" style={{background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444'}}><AlertTriangle size={24}/></div>
-                <div className="stat-details">
-                  <h3>Rejected Samples</h3>
-                  <h2>{labSamples.filter(s => s.status === 'Rejected').length}</h2>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'lab_master' && (
-          <div className="no-print">
-            <div className="header">
-              <div className="header-title">
-                <h1>Lab Test Master</h1>
-                <p>Manage all laboratory tests, reference ranges, and pricing.</p>
-              </div>
-              {selectedTestMasterId && (
-                <button className="btn btn-secondary" onClick={() => {
-                  setSelectedTestMasterId(null);
-                  setLabTestMasterForm({ test_code: '', test_name: '', category: 'Pathology', department: '', sample_type: 'Blood', unit: '', reference_range: '', normal_range_male: '', normal_range_female: '', normal_range_child: '', price: 0, tat_hours: 24, is_active: true });
-                }}>Cancel Edit</button>
-              )}
-            </div>
-            <div className="grid-2">
-              <div className="glass-card">
-                <h3>{selectedTestMasterId ? 'Edit Test' : 'Add New Test'}</h3>
-                <form onSubmit={handleSaveLabTestMaster}>
-                  <div className="form-grid">
-                    <div className="form-group"><label>Test Code</label><input type="text" required value={labTestMasterForm.test_code} onChange={e => setLabTestMasterForm({...labTestMasterForm, test_code: e.target.value})} /></div>
-                    <div className="form-group"><label>Test Name</label><input type="text" required value={labTestMasterForm.test_name} onChange={e => setLabTestMasterForm({...labTestMasterForm, test_name: e.target.value})} /></div>
-                    <div className="form-group"><label>Category</label><select value={labTestMasterForm.category} onChange={e => setLabTestMasterForm({...labTestMasterForm, category: e.target.value})}><option>Pathology</option><option>Biochemistry</option><option>Microbiology</option><option>Radiology</option></select></div>
-                    <div className="form-group"><label>Department</label><input type="text" value={labTestMasterForm.department} onChange={e => setLabTestMasterForm({...labTestMasterForm, department: e.target.value})} /></div>
-                    <div className="form-group"><label>Sample Type</label><input type="text" value={labTestMasterForm.sample_type} onChange={e => setLabTestMasterForm({...labTestMasterForm, sample_type: e.target.value})} placeholder="Blood, Urine..." /></div>
-                    <div className="form-group"><label>Unit</label><input type="text" value={labTestMasterForm.unit} onChange={e => setLabTestMasterForm({...labTestMasterForm, unit: e.target.value})} placeholder="mg/dL" /></div>
-                    <div className="form-group"><label>Normal Range (Male)</label><input type="text" value={labTestMasterForm.normal_range_male} onChange={e => setLabTestMasterForm({...labTestMasterForm, normal_range_male: e.target.value})} /></div>
-                    <div className="form-group"><label>Normal Range (Female)</label><input type="text" value={labTestMasterForm.normal_range_female} onChange={e => setLabTestMasterForm({...labTestMasterForm, normal_range_female: e.target.value})} /></div>
-                    <div className="form-group"><label>Price (₹)</label><input type="number" required value={labTestMasterForm.price} onChange={e => setLabTestMasterForm({...labTestMasterForm, price: Number(e.target.value)})} /></div>
-                    <div className="form-group"><label>TAT (Hours)</label><input type="number" value={labTestMasterForm.tat_hours} onChange={e => setLabTestMasterForm({...labTestMasterForm, tat_hours: Number(e.target.value)})} /></div>
-                  </div>
-                  <button type="submit" className="btn btn-primary" style={{marginTop: '15px'}}>
-                    {selectedTestMasterId ? <><Edit size={18} /> Update Test</> : <><PlusCircle size={18} /> Save Test</>}
-                  </button>
-                </form>
-              </div>
-              <div className="glass-card">
-                <h3>Available Tests</h3>
-                <div className="table-container">
-                  <table>
-                    <thead><tr><th>Code</th><th>Name</th><th>Category</th><th>Price</th><th>Actions</th></tr></thead>
-                    <tbody>
-                      {labTestMasters.map(t => (
-                        <tr key={t.id}>
-                          <td>{t.test_code}</td>
-                          <td>{t.test_name}</td>
-                          <td>{t.category}</td>
-                          <td>₹{t.price}</td>
-                          <td>
-                            <div style={{ display: 'flex', gap: '5px' }}>
-                              <button className="btn btn-secondary" style={{padding: '4px 8px'}} onClick={() => handleEditLabTestMaster(t)}><Edit size={14}/></button>
-                              <button className="btn btn-danger" style={{padding: '4px 8px'}} onClick={() => handleDeleteLabTestMaster(t.id)}><Trash2 size={14}/></button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                      {labTestMasters.length === 0 && <tr><td colSpan={5} style={{textAlign: 'center', color: 'var(--text-muted)'}}>No lab tests configured.</td></tr>}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'lab_orders' && (
-          <div className="no-print">
-            <LabPatientHeader 
-              patients={patients} 
-              selectedId={selectedGlobalLabPatientId} 
-              onChange={setSelectedGlobalLabPatientId} 
-              labOrders={labOrders} 
-              ipAdmissions={ipAdmissions} 
-            />
-
-            <div className="header">
-              <div className="header-title"><h1>Lab Orders Workflow</h1><p>Process test orders from doctors.</p></div>
-              <div style={{ display: 'flex', gap: '10px' }}>
-                <button className="btn btn-primary" onClick={() => setIsLabRegistrationModalOpen(true)} style={{ background: 'linear-gradient(135deg, #10b981, #059669)', border: 'none', padding: '10px 20px', borderRadius: '8px', color: 'white', fontWeight: 'bold' }}>+ Register Walk-in</button>
-                <input 
-                  type="text" 
-                  className="search-bar" 
-                  placeholder="Search Patient Name or ID..." 
-                  value={labSearchQuery} 
-                  onChange={e => setLabSearchQuery(e.target.value)} 
-                />
-                <select className="search-bar" value={labFilterStatus} onChange={e => setLabFilterStatus(e.target.value)}>
-                  <option value="All">All Statuses</option>
-                  <option value="Pending">Pending</option>
-                  <option value="Sample Collected">Sample Collected</option>
-                  <option value="Testing">Testing</option>
-                  <option value="Verified">Verified</option>
-                </select>
-              </div>
-            </div>
-            
-            <div className="glass-card">
-              <div className="table-container">
-                <div style={{ overflowX: 'auto' }}>
-                  <table style={{ minWidth: '1200px' }}>
-                    <thead>
-                      <tr>
-                        <th>Order ID</th>
-                        <th>Patient ID</th>
-                        <th>Patient Name</th>
-                        <th>Age/Gen</th>
-                        <th>Mobile</th>
-                        <th>Doctor</th>
-                        <th>Dept</th>
-                        <th>Visit</th>
-                        <th>Test</th>
-                        <th>Priority</th>
-                        <th>Billing</th>
-                        <th>Payment</th>
-                        <th>Status</th>
-                        <th>Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {labOrders
-                        .filter(o => {
-                           if (selectedGlobalLabPatientId && o.patient_id !== selectedGlobalLabPatientId) return false;
-                           const p = patients.find(pat => pat.id === o.patient_id);
-                           const pName = p?.name?.toLowerCase() || '';
-                           const doctorName = o.doctor_name?.toLowerCase() || '';
-                           const testName = labTestMasters.find(t => t.id === o.test_id)?.test_name?.toLowerCase() || '';
-                           const query = labSearchQuery.toLowerCase();
-                           
-                           if (labSearchQuery && !pName.includes(query) && !doctorName.includes(query) && !testName.includes(query) && o.id.toString() !== query && o.patient_id.toString() !== query) return false;
-                           if (labFilterStatus !== 'All' && o.status !== labFilterStatus) return false;
-                           return true;
-                        })
-                        .map(o => {
-                          const p = patients.find(pat => pat.id === o.patient_id);
-                          const t = labTestMasters.find(test => test.id === o.test_id);
-                          const isIP = ipAdmissions.some(a => a.patient_id === o.patient_id && a.status === 'Admitted');
-                          const visitType = isIP ? 'IP' : 'OP';
-                          
-                          // Basic billing logic for lab orders based on bills
-                          const pOpBills = opBills.filter(b => b.patient_id === o.patient_id);
-                          const isBilled = pOpBills.length > 0;
-                          const paymentStatus = isBilled ? 'Paid' : 'Pending';
-
-                          return (
-                          <tr key={o.id}>
-                            <td>#{o.id}</td>
-                            <td>{o.patient_id}</td>
-                            <td>{p?.name}</td>
-                            <td>{p?.age} / {p?.gender?.charAt(0)}</td>
-                            <td>{p?.phone}</td>
-                            <td>{o.doctor_name || 'N/A'}</td>
-                            <td>{t?.department || 'N/A'}</td>
-                            <td>{visitType}</td>
-                            <td>{t?.test_name}</td>
-                            <td>
-                              <span style={{color: o.priority === 'Urgent' ? 'var(--danger)' : 'inherit'}}>
-                                {o.priority || 'Routine'}
-                              </span>
-                            </td>
-                            <td>{isBilled ? 'Billed' : 'Unbilled'}</td>
-                            <td>{paymentStatus}</td>
-                            <td><span className={`status-badge ${(o.status || '').replace(' ', '-').toLowerCase()}`}>{o.status}</span></td>
-                            <td>
-                              <div style={{ display: 'flex', gap: '5px' }}>
-                                <button className="btn btn-secondary" style={{padding: '5px 10px'}} onClick={() => setSelectedViewOrder(o)} title="View"><Eye size={16}/></button>
-                                {o.status === 'Pending' && (
-                                  <>
-                                    <button className="btn btn-secondary" style={{padding: '5px 10px'}} onClick={() => {
-                                      setEditOrderForm({ priority: o.priority || 'Routine', remarks: o.remarks || '' });
-                                      setSelectedEditOrder(o);
-                                    }} title="Edit"><Edit size={16}/></button>
-                                    <button className="btn btn-primary" style={{padding: '5px 10px', fontSize: '12px'}} onClick={() => {
-                                      setCollectSampleForm({ barcode: '', collected_by: currentUser?.username || '', sample_type: t?.sample_type || 'Unknown' });
-                                      setSelectedCollectSampleOrder(o);
-                                    }}>Collect</button>
-                                  </>
-                                )}
-                                {o.status === 'Sample Collected' && (
-                                  <button className="btn btn-primary" style={{padding: '5px 10px', fontSize: '12px'}} onClick={() => {
-                                    setResultEntryForm([{ parameter: '', result: '', unit: t?.unit || '', range: t?.reference_range || '', flag: 'Normal' }]);
-                                    setSelectedResultEntryOrder(o);
-                                  }}>Results</button>
-                                )}
-                                {o.status === 'Testing' && (
-                                  <button className="btn btn-primary" style={{padding: '5px 10px', fontSize: '12px'}} onClick={() => {
-                                    try {
-                                      const draft = JSON.parse(o.remarks || '[]');
-                                      if (draft && draft.length > 0 && draft[0].parameter !== undefined) {
-                                        setResultEntryForm(draft);
-                                      } else {
-                                        throw new Error("No valid draft");
-                                      }
-                                    } catch(e) {
-                                      setResultEntryForm([{ parameter: '', result: '', unit: t?.unit || '', range: t?.reference_range || '', flag: 'Normal' }]);
-                                    }
-                                    setSelectedResultEntryOrder(o);
-                                  }}>Verify</button>
-                                )}
-                                {o.status === 'Verified' && (
-                                  <button className="btn btn-secondary" style={{padding: '5px 10px'}} onClick={() => {
-                                    setActiveTab('lab_reports_new');
-                                  }} title="Print"><Printer size={16}/></button>
-                                )}
-                              </div>
-                            </td>
-                          </tr>
-                        )})}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-            
-            {/* VIEW MODAL */}
-            {selectedViewOrder && (
-              <div className="modal-overlay">
-                <div className="modal-content" style={{maxWidth: '600px'}}>
-                  <div className="modal-header">
-                    <h2>Order Details #{selectedViewOrder.id}</h2>
-                    <button className="close-btn" onClick={() => setSelectedViewOrder(null)}><X size={20}/></button>
-                  </div>
-                  <div className="modal-body">
-                    <p><strong>Patient:</strong> {patients.find(p=>p.id===selectedViewOrder.patient_id)?.name}</p>
-                    <p><strong>Doctor:</strong> {selectedViewOrder.doctor_name || 'N/A'}</p>
-                    <p><strong>Test:</strong> {labTestMasters.find(t=>t.id===selectedViewOrder.test_id)?.test_name}</p>
-                    <p><strong>Priority:</strong> {selectedViewOrder.priority || 'Routine'}</p>
-                    <p><strong>Remarks:</strong> {selectedViewOrder.remarks || 'None'}</p>
-                    <div style={{ marginTop: '20px', padding: '10px', background: 'rgba(255,255,255,0.05)', borderRadius: '8px' }}>
-                      <h4>Timeline</h4>
-                      <p>➤ Pending ( {new Date(selectedViewOrder.order_date).toLocaleString()} )</p>
-                      {['Sample Collected', 'Testing', 'Completed', 'Verified'].includes(selectedViewOrder.status) && <p>➤ Sample Collected</p>}
-                      {['Testing', 'Completed', 'Verified'].includes(selectedViewOrder.status) && <p>➤ Result Entered</p>}
-                      {['Completed', 'Verified'].includes(selectedViewOrder.status) && <p>➤ Verified</p>}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* EDIT MODAL */}
-            {selectedEditOrder && (
-              <div className="modal-overlay">
-                <div className="modal-content" style={{maxWidth: '400px'}}>
-                  <div className="modal-header">
-                    <h2>Edit Order #{selectedEditOrder.id}</h2>
-                    <button className="close-btn" onClick={() => setSelectedEditOrder(null)}><X size={20}/></button>
-                  </div>
-                  <div className="modal-body">
-                    <div className="form-group">
-                      <label>Priority</label>
-                      <select value={editOrderForm.priority} onChange={e => setEditOrderForm({...editOrderForm, priority: e.target.value})}>
-                        <option>Routine</option>
-                        <option>Urgent</option>
-                        <option>STAT</option>
-                      </select>
-                    </div>
-                    <div className="form-group" style={{marginTop: '15px'}}>
-                      <label>Remarks</label>
-                      <textarea rows={3} value={editOrderForm.remarks} onChange={e => setEditOrderForm({...editOrderForm, remarks: e.target.value})}></textarea>
-                    </div>
-                    <button className="btn btn-primary" style={{marginTop: '20px', width: '100%'}} onClick={handleSaveEditOrder}>Save Changes</button>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* COLLECT SAMPLE MODAL */}
-            {selectedCollectSampleOrder && (
-              <div className="modal-overlay">
-                <div className="modal-content" style={{maxWidth: '600px'}}>
-                  <div className="modal-header">
-                    <h2>Collect Sample for Order #{selectedCollectSampleOrder.id}</h2>
-                    <button className="close-btn" onClick={() => setSelectedCollectSampleOrder(null)}><X size={20}/></button>
-                  </div>
-                  <div className="modal-body">
-                    <div className="form-grid">
-                      <div className="form-group">
-                        <label>Sample Type</label>
-                        <input type="text" value={collectSampleForm.sample_type} onChange={e => setCollectSampleForm({...collectSampleForm, sample_type: e.target.value})} />
-                      </div>
-                      <div className="form-group">
-                        <label>Container Type</label>
-                        <input type="text" placeholder="e.g. EDTA Tube, Plain Vial" value={collectSampleForm.container_type} onChange={e => setCollectSampleForm({...collectSampleForm, container_type: e.target.value})} />
-                      </div>
-                      <div className="form-group">
-                        <label>Barcode</label>
-                        <input type="text" placeholder="Scan or enter barcode" value={collectSampleForm.barcode} onChange={e => setCollectSampleForm({...collectSampleForm, barcode: e.target.value})} />
-                      </div>
-                      <div className="form-group">
-                        <label>Collected By</label>
-                        <input type="text" value={collectSampleForm.collected_by} onChange={e => setCollectSampleForm({...collectSampleForm, collected_by: e.target.value})} />
-                      </div>
-                      <div className="form-group" style={{gridColumn: '1 / -1'}}>
-                        <label>Remarks / Instructions</label>
-                        <textarea rows={2} style={{width: '100%'}} value={collectSampleForm.remarks} onChange={e => setCollectSampleForm({...collectSampleForm, remarks: e.target.value})} />
-                      </div>
-                    </div>
-                    <button className="btn btn-primary" style={{marginTop: '20px', width: '100%'}} onClick={handleSaveCollectSample}>Save and Mark as Collected</button>
-                  </div>
-                </div>
-              </div>
-            )}
-
-
-            {/* LAB WALKIN REGISTRATION MODAL */}
-            {isLabRegistrationModalOpen && (
-              <div className="modal-overlay">
-                <div className="modal-content" style={{maxWidth: '800px', width: '90%'}}>
-                  <div className="modal-header">
-                    <h2>Register Walk-in Patient</h2>
-                    <button className="close-btn" onClick={() => setIsLabRegistrationModalOpen(false)}><X size={20}/></button>
-                  </div>
-                  <div className="modal-body">
-                    <form onSubmit={handleLabWalkinRegistration}>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px' }}>
-                        <div className="form-group">
-                          <label>Patient Full Name *</label>
-                          <input type="text" value={patientForm.name} onChange={e => setPatientForm({ ...patientForm, name: e.target.value })} required />
-                        </div>
-                        <div className="form-group">
-                          <label>Age *</label>
-                          <input type="number" value={patientForm.age || ''} onChange={e => setPatientForm({ ...patientForm, age: Number(e.target.value) })} required />
-                        </div>
-                        <div className="form-group">
-                          <label>Gender *</label>
-                          <select value={patientForm.gender} onChange={e => setPatientForm({ ...patientForm, gender: e.target.value })}>
-                            <option>Male</option>
-                            <option>Female</option>
-                            <option>Other</option>
-                          </select>
-                        </div>
-                        <div className="form-group">
-                          <label>Phone Number *</label>
-                          <input type="text" value={patientForm.phone} onChange={e => setPatientForm({ ...patientForm, phone: e.target.value })} required />
-                        </div>
-                        <div className="form-group">
-                          <label>Blood Group</label>
-                          <select value={patientForm.blood_group} onChange={e => setPatientForm({ ...patientForm, blood_group: e.target.value })}>
-                            <option>A+</option><option>A-</option><option>B+</option><option>B-</option>
-                            <option>AB+</option><option>AB-</option><option>O+</option><option>O-</option>
-                          </select>
-                        </div>
-                        <div className="form-group" style={{ gridColumn: 'span 2' }}>
-                          <label>Address</label>
-                          <input type="text" value={patientForm.address} onChange={e => setPatientForm({ ...patientForm, address: e.target.value })} />
-                        </div>
-                        <div className="form-group" style={{ gridColumn: 'span 3', display: 'flex', justifyContent: 'flex-end', marginTop: '20px' }}>
-                          <button type="submit" className="btn btn-primary" style={{ padding: '10px 24px' }}>Register & Continue to Order</button>
-                        </div>
-                      </div>
-                    </form>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* DIRECT LAB ORDER MODAL */}
-            {isLabOrderModalOpen && (
-              <div className="modal-overlay">
-                <div className="modal-content" style={{maxWidth: '600px'}}>
-                  <div className="modal-header">
-                    <h2>Direct Lab Order</h2>
-                    <button className="close-btn" onClick={() => { setIsLabOrderModalOpen(false); setLabDirectOrderPatientId(null); }}><X size={20}/></button>
-                  </div>
-                  <div className="modal-body">
-                    <div style={{ background: 'rgba(59, 130, 246, 0.1)', padding: '15px', borderRadius: '8px', marginBottom: '20px', borderLeft: '4px solid #3b82f6' }}>
-                      <p style={{ margin: 0, fontWeight: 'bold' }}>Patient ID: {labDirectOrderPatientId}</p>
-                      <p style={{ margin: '5px 0 0 0', color: '#94a3b8', fontSize: '14px' }}>Please select the test required for this walk-in patient.</p>
-                    </div>
-                    <form onSubmit={handleCreateDirectLabOrder}>
-                      <div className="form-group">
-                        <label>Select Test *</label>
-                        <select value={labDirectOrderForm.test_id} onChange={e => setLabDirectOrderForm({ ...labDirectOrderForm, test_id: e.target.value })} required>
-                          <option value="">-- Choose Test --</option>
-                          {labTestMasters.filter(t => t.is_active).map(t => (
-                            <option key={t.id} value={t.id}>{t.test_name} (Rs {t.price})</option>
-                          ))}
-                        </select>
-                      </div>
-                      <div className="form-group">
-                        <label>Referring Doctor</label>
-                        <input type="text" value={labDirectOrderForm.referring_doctor} onChange={e => setLabDirectOrderForm({ ...labDirectOrderForm, referring_doctor: e.target.value })} />
-                        <small style={{color: '#64748b', display: 'block', marginTop: '4px'}}>Leave as 'Walk-in / Self' if self-referred.</small>
-                      </div>
-                      <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: '20px' }}>Create Lab Order</button>
-                    </form>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* RESULT ENTRY MODAL */}
-            {selectedResultEntryOrder && (
-              <div className="modal-overlay">
-                <div className="modal-content" style={{maxWidth: '900px', width: '95%'}}>
-                  <div className="modal-header">
-                    <h2>Enter Results for Order #{selectedResultEntryOrder.id}</h2>
-                    <button className="close-btn" onClick={() => setSelectedResultEntryOrder(null)}><X size={20}/></button>
-                  </div>
-                  <div className="modal-body">
-                    {/* Patient Context */}
-                    <div style={{ background: '#f8fafc', padding: '15px', borderRadius: '8px', marginBottom: '20px', border: '1px solid #e2e8f0' }}>
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px' }}>
-                        <div><small>Patient Name</small><br/><b>{patients.find(p => p.id === selectedResultEntryOrder.patient_id)?.name}</b></div>
-                        <div><small>Test Name</small><br/><b>{labTestMasters.find(t => t.id === selectedResultEntryOrder.test_id)?.test_name}</b></div>
-                        <div><small>Doctor</small><br/><b>{selectedResultEntryOrder.doctor_name || 'Walk-in'}</b></div>
-                        <div><small>Status</small><br/><span className={`status-badge ${(selectedResultEntryOrder.status || '').replace(' ', '-').toLowerCase()}`}>{selectedResultEntryOrder.status}</span></div>
-                      </div>
-                    </div>
-                    
-                    <div style={{ overflowX: 'auto' }}>
-                      <table style={{marginBottom: '20px', minWidth: '800px'}}>
-                        <thead><tr><th>Parameter</th><th>Result Value</th><th>Unit</th><th>Ref. Range</th><th>Normal Range</th><th>Flag</th><th>Remarks</th><th>Action</th></tr></thead>
-                        <tbody>
-                          {resultEntryForm.map((row, index) => (
-                            <tr key={index}>
-                              <td><input type="text" placeholder="e.g. WBC" value={row.parameter} onChange={e => { const newForm = [...resultEntryForm]; newForm[index].parameter = e.target.value; setResultEntryForm(newForm); }} disabled={selectedResultEntryOrder.status === 'Verified'} /></td>
-                              <td><input type="text" value={row.result} onChange={e => { const newForm = [...resultEntryForm]; newForm[index].result = e.target.value; setResultEntryForm(newForm); }} disabled={selectedResultEntryOrder.status === 'Verified'} /></td>
-                              <td><input type="text" value={row.unit} onChange={e => { const newForm = [...resultEntryForm]; newForm[index].unit = e.target.value; setResultEntryForm(newForm); }} disabled={selectedResultEntryOrder.status === 'Verified'} style={{width: '70px'}} /></td>
-                              <td><input type="text" value={row.range} onChange={e => { const newForm = [...resultEntryForm]; newForm[index].range = e.target.value; setResultEntryForm(newForm); }} disabled={selectedResultEntryOrder.status === 'Verified'} /></td>
-                              <td><input type="text" value={row.normal_range || ''} onChange={e => { const newForm = [...resultEntryForm]; newForm[index].normal_range = e.target.value; setResultEntryForm(newForm); }} disabled={selectedResultEntryOrder.status === 'Verified'} /></td>
-                              <td>
-                                <select value={row.flag} onChange={e => { const newForm = [...resultEntryForm]; newForm[index].flag = e.target.value; setResultEntryForm(newForm); }} disabled={selectedResultEntryOrder.status === 'Verified'}>
-                                  <option>Normal</option>
-                                  <option>High</option>
-                                  <option>Low</option>
-                                </select>
-                              </td>
-                              <td><input type="text" value={row.remarks || ''} onChange={e => { const newForm = [...resultEntryForm]; newForm[index].remarks = e.target.value; setResultEntryForm(newForm); }} disabled={selectedResultEntryOrder.status === 'Verified'} /></td>
-                              <td>
-                                {selectedResultEntryOrder.status !== 'Verified' && (
-                                  <button className="btn btn-danger" onClick={() => { const newForm = resultEntryForm.filter((_, i) => i !== index); setResultEntryForm(newForm); }}><Trash2 size={16}/></button>
-                                )}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                    {selectedResultEntryOrder.status !== 'Verified' && (
-                      <button className="btn btn-secondary" onClick={() => setResultEntryForm([...resultEntryForm, { parameter: '', result: '', unit: '', range: '', normal_range: '', flag: 'Normal', remarks: '' }])}>+ Add Parameter</button>
-                    )}
-                    
-                    {selectedResultEntryOrder.status !== 'Verified' ? (
-                      <div style={{ display: 'flex', gap: '15px', marginTop: '30px' }}>
-                        <button className="btn btn-secondary" style={{flex: 1}} onClick={() => handleSaveResultEntry(false)}>Save Draft</button>
-                        <button className="btn btn-primary" style={{flex: 1}} onClick={() => handleSaveResultEntry(true)}>Verify & Complete</button>
-                      </div>
-                    ) : (
-                      <div style={{ marginTop: '30px', padding: '15px', background: '#dcfce3', color: '#166534', borderRadius: '8px', textAlign: 'center', fontWeight: 'bold' }}>
-                        This report has been Verified and locked. Duplicate reports or edits are not allowed.
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            )}
-
-          </div>
-        )}
-
-        {activeTab === 'lab_samples' && (
-          <div className="no-print">
-            <LabPatientHeader 
-              patients={patients} 
-              selectedId={selectedGlobalLabPatientId} 
-              onChange={setSelectedGlobalLabPatientId} 
-              labOrders={labOrders} 
-              ipAdmissions={ipAdmissions} 
-            />
-
-            <div className="header">
-              <div className="header-title"><h1>Sample Collection</h1><p>Manage specimen collections.</p></div>
-            </div>
-            <div className="glass-card">
-              <div className="table-container">
-                <table>
-                  <thead><tr><th>Sample ID</th><th>Order ID</th><th>Sample Type</th><th>Status</th><th>Action</th></tr></thead>
-                  <tbody>
-                    {labSamples.map(s => (
-                      <tr key={s.id}>
-                        <td>#{s.id}</td><td>#{s.order_id}</td><td>{s.sample_type}</td>
-                        <td><span className={`status-badge ${(s.status || '').replace(' ', '-').toLowerCase()}`}>{s.status}</span></td>
-                        <td>
-                          {s.status === 'Pending' && (
-                            <button className="btn btn-primary" style={{padding: '5px 10px'}} onClick={() => handleUpdateLabSampleStatus(s.id, 'Collected')}>Mark Collected</button>
-                          )}
-                          {s.status === 'Collected' && (
-                            <button className="btn btn-danger" style={{padding: '5px 10px'}} onClick={() => handleUpdateLabSampleStatus(s.id, 'Rejected')}>Reject</button>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'lab_results' && (
-          <div className="no-print">
-            <LabPatientHeader 
-              patients={patients} 
-              selectedId={selectedGlobalLabPatientId} 
-              onChange={setSelectedGlobalLabPatientId} 
-              labOrders={labOrders} 
-              ipAdmissions={ipAdmissions} 
-            />
-
-            <div className="header">
-              <div className="header-title"><h1>Result Entry</h1><p>Enter test results for collected samples.</p></div>
-            </div>
-            <div className="glass-card">
-              <div className="table-container">
-                <table>
-                  <thead><tr><th>Order ID</th><th>Patient</th><th>Test</th><th>Status</th><th>Action</th></tr></thead>
-                  <tbody>
-                    {labOrders.filter(o => o.status === 'Sample Collected').map(o => {
-                      const test = labTestMasters.find(t=>t.id===o.test_id);
-                      return (
-                      <tr key={o.id}>
-                        <td>#{o.id}</td><td>{patients.find(p=>p.id===o.patient_id)?.name}</td><td>{test?.test_name}</td>
-                        <td><span className="status-badge sample-collected">Ready for Entry</span></td>
-                        <td>
-                          <div style={{display: 'flex', gap: '10px', alignItems: 'center'}}>
-                            <input type="text" placeholder="Value" className="input-field" onChange={(e) => setLabResultParams({ ...labResultParams, [o.id]: { ...labResultParams[o.id], value: e.target.value } })} />
-                            <select className="input-field" onChange={(e) => setLabResultParams({ ...labResultParams, [o.id]: { ...labResultParams[o.id], flag: e.target.value } })}>
-                              <option value="Normal">Normal</option>
-                              <option value="High">High</option>
-                              <option value="Low">Low</option>
-                            </select>
-                            <button className="btn btn-primary" style={{padding: '8px 12px'}} onClick={() => handleSaveNewLabReport(o)}>Verify & Save</button>
-                          </div>
-                        </td>
-                      </tr>
-                    )})}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'lab_reports_new' && (
-          <div>
-            <div className="header no-print">
-              <div className="header-title"><h1>Completed Lab Reports</h1><p>View and print finalized reports.</p></div>
-            </div>
-            <div className="glass-card">
-              <div className="table-container no-print">
-                <table>
-                  <thead><tr><th>Date</th><th>Patient</th><th>Test Name</th><th>Results</th><th>Action</th></tr></thead>
-                  <tbody>
-                    {labReports.map(report => (
-                      <tr key={report.id}>
-                        <td>{new Date(report.date_conducted).toLocaleDateString()}</td>
-                        <td>{patients.find(p=>p.id===report.patient_id)?.name}</td>
-                        <td>{report.test_name}</td>
-                        <td>
-                          {report.results_data ? (
-                            Object.keys(report.results_data).map(k => (
-                              <div key={k}>Value: {report.results_data[k]?.value} ({report.results_data[k]?.flag})</div>
-                            ))
-                          ) : (
-                            <div>{report.result_value} {report.units}</div>
-                          )}
-                        </td>
-                        <td>
-                          <button className="btn btn-secondary" onClick={() => window.print()}><Printer size={16}/> Print</button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
+        {(activeTab === 'lab_reports' || activeTab.startsWith('lab_')) && (
+          <LabModule
+            API_BASE={API_BASE}
+            patients={patients}
+            labReports={labReports}
+            labTestMasters={labTestMasters}
+            labOrders={labOrders}
+            labSamples={labSamples}
+            opBills={opBills}
+            ipAdmissions={ipAdmissions}
+            currentUser={currentUser}
+            showToast={showToast}
+            loadAllData={loadAllData}
+            selectedGlobalLabPatientId={selectedGlobalLabPatientId}
+            setSelectedGlobalLabPatientId={setSelectedGlobalLabPatientId}
+            activeLabSubTab={activeTab}
+          />
         )}
         {activeTab === 'patient_history' && (
           <div className="no-print">
@@ -4121,7 +3706,7 @@ Follow-up: ${casesheetForm.followUpDate}`.trim();
                     <div className="form-grid" style={{gridTemplateColumns:'1fr 1fr', gap:'12px'}}>
                       <div className="form-group">
                         <label>Patient *</label>
-                        <Select 
+                        <Select
                           styles={selectStyles}
                           options={patients.map(p => ({ value: String(p.id), label: `${p.name} (ID: ${p.id})` }))}
                           value={opBillForm.patient_id ? { value: String(opBillForm.patient_id), label: patients.find(p => String(p.id) === String(opBillForm.patient_id))?.name + ' (ID: ' + opBillForm.patient_id + ')' } : null}
@@ -4257,7 +3842,7 @@ Follow-up: ${casesheetForm.followUpDate}`.trim();
                     <div className="form-grid" style={{gridTemplateColumns:'1fr 1fr', gap:'12px'}}>
                       <div className="form-group">
                         <label>Patient *</label>
-                        <Select 
+                        <Select
                           styles={selectStyles}
                           options={patients.map(p => ({ value: String(p.id), label: `${p.name} (ID: ${p.id})` }))}
                           value={ipBillForm.patient_id ? { value: String(ipBillForm.patient_id), label: patients.find(p => String(p.id) === String(ipBillForm.patient_id))?.name + ' (ID: ' + ipBillForm.patient_id + ')' } : null}
@@ -4471,14 +4056,14 @@ Follow-up: ${casesheetForm.followUpDate}`.trim();
                 {key:'department', label:'🏢 Department Wise'}, {key:'patient', label:'🧑‍⚕️ Patient History'},
                 {key:'stock', label:'📦 Stock Valuation'}, {key:'lab', label:'🔬 Lab Summary'}, {key:'discharge', label:'🏥 Discharge'}
               ].map(r => (
-                <button key={r.key} onClick={() => { 
-                  setReportType(r.key); 
-                  if(r.key==='daily') loadDailyReport(); 
-                  else if(r.key==='monthly') loadMonthlyReport(); 
-                  else if(r.key==='yearly') loadYearlyReport(); 
-                  else if(r.key==='revenue') loadRevenueReport(); 
-                  else if(r.key==='doctor') loadDoctorReport(); 
-                  else if(r.key==='medicine') loadMedicineSalesReport(); 
+                <button key={r.key} onClick={() => {
+                  setReportType(r.key);
+                  if(r.key==='daily') loadDailyReport();
+                  else if(r.key==='monthly') loadMonthlyReport();
+                  else if(r.key==='yearly') loadYearlyReport();
+                  else if(r.key==='revenue') loadRevenueReport();
+                  else if(r.key==='doctor') loadDoctorReport();
+                  else if(r.key==='medicine') loadMedicineSalesReport();
                   else if(r.key==='department') loadDepartmentWiseReport();
                   else if(r.key==='patient') loadPatientReport();
                   else if(r.key==='stock') loadMedicineStockReport();
@@ -4902,9 +4487,9 @@ Follow-up: ${casesheetForm.followUpDate}`.trim();
                         <div key={i} className="glass-card" style={{display:'flex', alignItems:'center', gap:'16px', padding:'16px', border:`1px solid ${color}30`, cursor:'pointer', transition:'all 0.2s'}}
                           onClick={async () => {
                             try {
-                              if (result.type === 'patient' || result.type === 'op_token' || result.type === 'admission') { 
-                                setActiveTab('reports'); 
-                                setReportType('patient'); 
+                              if (result.type === 'patient' || result.type === 'op_token' || result.type === 'admission') {
+                                setActiveTab('reports');
+                                setReportType('patient');
                                 setPatientReportId(String(result.patient_id));
                                 const res = await axios.get(`${API_BASE}/reports/patient/${result.patient_id}`);
                                 setPatientReportData(res.data);
@@ -4915,11 +4500,11 @@ Follow-up: ${casesheetForm.followUpDate}`.trim();
                               else if (result.type === 'ip_bill') {
                                 setActiveTab('billing');
                               }
-                              else if (result.type === 'pharmacy_bill') { 
-                                setActiveTab('pharmacy'); 
+                              else if (result.type === 'pharmacy_bill') {
+                                setActiveTab('pharmacy');
                               }
-                              else if (result.type === 'lab_bill') { 
-                                setActiveTab('lab_reports'); 
+                              else if (result.type === 'lab_bill') {
+                                setActiveTab('lab_reports');
                               }
                             } catch(e) { console.error(e); }
                           }}
@@ -4946,6 +4531,26 @@ Follow-up: ${casesheetForm.followUpDate}`.trim();
               )}
             </div>
           </div>
+        )}
+
+        {/* =================== SCAN & RADIOLOGY MODULE =================== */}
+        {activeTab === 'scans' && (
+          <ScanModule
+            API_BASE={API_BASE}
+            patients={patients}
+            scanRecords={scanRecords}
+            scanTypesMaster={scanTypesMaster}
+            scanSubTab={scanSubTab}
+            setScanSubTab={setScanSubTab}
+            selectedScanRecord={selectedScanRecord}
+            setSelectedScanRecord={setSelectedScanRecord}
+            selectedViewScan={selectedViewScan}
+            setSelectedViewScan={setSelectedViewScan}
+            currentUser={currentUser}
+            showToast={showToast}
+            loadScanRecords={loadScanRecords}
+            loadScanTypesMaster={loadScanTypesMaster}
+          />
         )}
 
         {/* =================== ADMIN SETTINGS =================== */}
@@ -5178,17 +4783,17 @@ Follow-up: ${casesheetForm.followUpDate}`.trim();
               Are you sure you want to delete <strong>{deleteConfirm.name}</strong> ({deleteConfirm.type})? This action cannot be undone.
             </p>
             <div style={{display:'flex', justifyContent:'flex-end', gap:'12px'}}>
-              <button 
+              <button
                 type="button"
-                className="btn btn-secondary" 
+                className="btn btn-secondary"
                 onClick={() => setDeleteConfirm(null)}
                 style={{padding:'8px 16px', borderRadius:'8px', cursor:'pointer', background:'rgba(255,255,255,0.1)', color:'#fff', border:'none'}}
               >
                 Cancel
               </button>
-              <button 
+              <button
                 type="button"
-                className="btn btn-danger" 
+                className="btn btn-danger"
                 onClick={executeDelete}
                 style={{padding:'8px 16px', borderRadius:'8px', background:'#dc2626', color:'#fff', border:'none', cursor:'pointer', fontWeight:600}}
               >
