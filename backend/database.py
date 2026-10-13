@@ -8,12 +8,16 @@ database_url = os.getenv("DATABASE_URL") or os.getenv("INTERNAL_DATABASE_URL")
 
 if not database_url:
     # Default to Local PostgreSQL setup by portable installer
-    database_url = "postgresql://postgres@127.0.0.1:5432/postgres"
+    database_url = "postgresql+psycopg2://postgres@127.0.0.1:5432/postgres"
 
-# Render provides PostgreSQL connection URLs starting with 'postgres://'
-# SQLAlchemy 1.4+ requires 'postgresql://' or 'postgresql+psycopg2://'
+# Normalize PostgreSQL connection URLs to explicitly use psycopg2
+# Handles Render/cloud URLs starting with 'postgres://', 'postgresql://', or 'postgresql+psycopg://'
 if database_url.startswith("postgres://"):
-    database_url = database_url.replace("postgres://", "postgresql://", 1)
+    database_url = database_url.replace("postgres://", "postgresql+psycopg2://", 1)
+elif database_url.startswith("postgresql+psycopg://"):
+    database_url = database_url.replace("postgresql+psycopg://", "postgresql+psycopg2://", 1)
+elif database_url.startswith("postgresql://") and not database_url.startswith("postgresql+"):
+    database_url = database_url.replace("postgresql://", "postgresql+psycopg2://", 1)
 
 SQLALCHEMY_DATABASE_URL = database_url
 
