@@ -16,8 +16,12 @@ from . import crud, schemas, models, auth
 Base.metadata.create_all(bind=engine)
 
 # Ensure upload directories exist
-os.makedirs("backend/uploads/scans", exist_ok=True)
-os.makedirs("backend/uploads/lab", exist_ok=True)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+UPLOAD_DIR = os.environ.get("UPLOAD_DIR", os.path.join(BASE_DIR, "uploads"))
+SCANS_UPLOAD_DIR = os.path.join(UPLOAD_DIR, "scans")
+LAB_UPLOAD_DIR = os.path.join(UPLOAD_DIR, "lab")
+os.makedirs(SCANS_UPLOAD_DIR, exist_ok=True)
+os.makedirs(LAB_UPLOAD_DIR, exist_ok=True)
 
 # Safely add JSON & Enterprise columns (Incremental Safe Migration)
 from sqlalchemy import text
@@ -197,11 +201,27 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 def startup_event():
     db = next(get_db())
     try:
-        admin_user = crud.get_user_by_username(db, "admin")
+        admin_username = os.getenv("ADMIN_USERNAME", "admin").strip()
+        admin_password = os.getenv("ADMIN_PASSWORD")
+        is_cloud_prod = bool(os.getenv("RENDER") or os.getenv("ENVIRONMENT") == "production")
+
+        admin_user = crud.get_user_by_username(db, admin_username)
         if not admin_user:
-            hashed = auth.get_password_hash("admin123")
-            user_schema = schemas.UserCreate(username="admin", password="admin123", role="Admin")
-            crud.create_user(db, user_schema, hashed)
+            if admin_password:
+                hashed = auth.get_password_hash(admin_password)
+                user_schema = schemas.UserCreate(username=admin_username, password=admin_password, role="Admin")
+                crud.create_user(db, user_schema, hashed)
+                print(f"[SECURITY] Initial admin account '{admin_username}' provisioned securely from environment configuration.")
+            elif not is_cloud_prod:
+                # Local offline development default (never use in public cloud)
+                default_dev_pass = "admin123"
+                hashed = auth.get_password_hash(default_dev_pass)
+                user_schema = schemas.UserCreate(username=admin_username, password=default_dev_pass, role="Admin")
+                crud.create_user(db, user_schema, hashed)
+                print(f"[SECURITY WARNING] Initial admin account created with default development credentials. Set ADMIN_PASSWORD in production!")
+            else:
+                print(f"[SECURITY NOTICE] Initial admin account '{admin_username}' was NOT created because ADMIN_PASSWORD is not set. Please set ADMIN_PASSWORD in your Render environment variables to initialize.")
+
         crud.init_default_scan_types(db)
     finally:
         db.close()
@@ -212,18 +232,38 @@ app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(AuditTrailMiddleware)
 app.add_middleware(RateLimitMiddleware)
 
-# Enable CORS for React Frontend
+# Enable CORS (Configurable for local dev & deployed Vercel frontend)
+default_origins = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+]
+env_cors = os.getenv("CORS_ORIGINS") or os.getenv("ALLOWED_ORIGINS") or ""
+if env_cors:
+    if env_cors.strip() == "*":
+        allowed_origins = ["*"]
+    else:
+        custom_origins = [orig.strip() for orig in env_cors.split(",") if orig.strip()]
+        allowed_origins = list(dict.fromkeys(default_origins + custom_origins))
+else:
+    allowed_origins = default_origins
+
+allow_origin_regex = os.getenv("CORS_ORIGIN_REGEX")
+allow_credentials = False if allowed_origins == ["*"] else True
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:3000", "http://127.0.0.1:3000"],  # Restrict to known origins
-    allow_credentials=True,
+    allow_origins=allowed_origins,
+    allow_origin_regex=allow_origin_regex,
+    allow_credentials=allow_credentials,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allow_headers=["Authorization", "Content-Type", "X-Requested-With"],
     expose_headers=["X-Process-Time"]
 )
 
 # Mount uploads static directory
-app.mount("/uploads", StaticFiles(directory="backend/uploads"), name="uploads")
+app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 
 # ----------------- AUTHENTICATION -----------------
 @app.post("/login", response_model=schemas.Token)
@@ -784,7 +824,7 @@ async def upload_lab_attachment_endpoint(
         raise HTTPException(status_code=400, detail="File size exceeds maximum 10MB limit.")
 
     safe_filename = f"lab_{patient_id}_{int(time.time())}{ext}"
-    save_path = os.path.join("backend/uploads/lab", safe_filename)
+    save_path = os.path.join(LAB_UPLOAD_DIR, safe_filename)
     with open(save_path, "wb") as f:
         f.write(content)
 
@@ -1328,7 +1368,7 @@ async def upload_scan_attachment_endpoint(
     import re
     safe_name = re.sub(r'[^a-zA-Z0-9_\.-]', '_', file.filename or "attachment.dat")
     filename_unique = f"scan_{scan_id}_{int(time.time())}_{safe_name}"
-    file_path = os.path.join("backend", "uploads", "scans", filename_unique)
+    file_path = os.path.join(SCANS_UPLOAD_DIR, filename_unique)
 
     with open(file_path, "wb") as f:
         f.write(content)
@@ -1383,3 +1423,11 @@ def get_patient_scan_analysis_endpoint(patient_id: int, db: Session = Depends(ge
     if not analysis_data:
         raise HTTPException(status_code=404, detail="Patient not found")
     return analysis_data
+
+
+if __name__ == "__main__":
+    import uvicorn
+    # Support Render platform-provided PORT
+    port = int(os.environ.get("PORT", 8000))
+    host = os.environ.get("HOST", "0.0.0.0")
+    uvicorn.run("backend.main:app", host=host, port=port, reload=False)

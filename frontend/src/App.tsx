@@ -32,7 +32,7 @@ const selectStyles = {
   input: (base: any) => ({ ...base, color: 'var(--text-primary)' })
 };
 
-const API_BASE = "http://127.0.0.1:8000";
+const API_BASE = (import.meta.env.VITE_API_BASE_URL as string) || "http://127.0.0.1:8000";
 
 const HOSPITAL_LAYOUT = [
   { name: 'General Ward', prefix: 'GW', beds: 10 },

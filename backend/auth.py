@@ -1,3 +1,4 @@
+import os
 import bcrypt
 import re
 from datetime import datetime, timedelta
@@ -12,10 +13,15 @@ from .database import get_db
 # ============================
 # Security Configuration
 # ============================
-SECRET_KEY = "h0spit@l_s3cr3t_k3y_v3ry_s3cur3_2024"
+# Read JWT secret securely from environment variable (do not expose secrets in logs or code)
+SECRET_KEY = os.getenv("JWT_SECRET_KEY") or os.getenv("SECRET_KEY")
+if not SECRET_KEY:
+    # Development fallback for offline local testing
+    SECRET_KEY = "dev-insecure-secret-key-change-in-production-hospital-jwt"
+
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 480   # 8 hours session timeout
-REFRESH_TOKEN_EXPIRE_DAYS = 1       # 1 day refresh token
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "480"))   # 8 hours session timeout
+REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "1"))       # 1 day refresh token
 
 # In-memory token blacklist (revoked tokens)
 TOKEN_BLACKLIST: Set[str] = set()
